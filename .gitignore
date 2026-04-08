@@ -36,6 +36,19 @@ yarn-error.log*
 # vercel
 .vercel
 
+# docs and assets not for repo
+*.zip
+*.docx
+/APP_SHELL_IMPLEMENTATION.md
+/INFORME-HOSTING.md
+/PROJECT_CONTEXT.md
+/cropped-Projectx-300x300.png
+/titulo-project.png
+/logo.png
+
+# claude code
+.claude/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
