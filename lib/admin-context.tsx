@@ -19,6 +19,7 @@ interface AdminSelectionContextType {
   venues: Venue[]                // venues for selected date
   events: Event[]                // events for selected venue
   allEvents: Event[]             // all events for selected date (across venues)
+  allVenues: Venue[]             // all org venues (for events board)
 
   // Loading
   loading: boolean
@@ -27,6 +28,7 @@ interface AdminSelectionContextType {
   setDate: (date: string | null) => void
   setVenue: (venueId: string | null) => void
   setEvent: (eventId: string | null) => void
+  refresh: () => Promise<void>
 }
 
 const AdminSelectionContext = createContext<AdminSelectionContextType | undefined>(undefined)
@@ -41,35 +43,31 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // 1. Load all events + venues on mount
-  useEffect(() => {
+  // 1. Load all events + venues
+  const refreshData = useCallback(async (restoreSelection = true) => {
     if (!user) return
-    let cancelled = false
+    setLoading(true)
+    try {
+      // Fetch events
+      let evQuery = supabase.from('events').select('*').order('date', { ascending: false })
+      if (isSuperAdmin && organization?.id) {
+        evQuery = evQuery.eq('organization_id', organization.id)
+      } else {
+        evQuery = evQuery.eq('created_by', user.id)
+      }
+      const { data: evData } = await evQuery
 
-    const load = async () => {
-      setLoading(true)
-      try {
-        // Fetch events
-        let evQuery = supabase.from('events').select('*').order('date', { ascending: false })
-        if (isSuperAdmin && organization?.id) {
-          evQuery = evQuery.eq('organization_id', organization.id)
-        } else {
-          evQuery = evQuery.eq('created_by', user.id)
-        }
-        const { data: evData } = await evQuery
+      // Fetch venues
+      let vnQuery = supabase.from('venues').select('*').order('name')
+      if (organization?.id) {
+        vnQuery = vnQuery.eq('organization_id', organization.id)
+      }
+      const { data: vnData } = await vnQuery
 
-        // Fetch venues
-        let vnQuery = supabase.from('venues').select('*').order('name')
-        if (organization?.id) {
-          vnQuery = vnQuery.eq('organization_id', organization.id)
-        }
-        const { data: vnData } = await vnQuery
+      setAllOrgEvents(evData || [])
+      setAllVenues(vnData || [])
 
-        if (cancelled) return
-
-        setAllOrgEvents(evData || [])
-        setAllVenues(vnData || [])
-
+      if (restoreSelection) {
         // Restore from sessionStorage or auto-select first date
         const savedDate = sessionStorage.getItem('admin_date')
         const savedVenue = sessionStorage.getItem('admin_venue')
@@ -83,16 +81,18 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
           const firstDate = formatDate(evData[0].date)
           setSelectedDate(firstDate)
         }
-      } catch (err) {
-        console.error('[AdminContext] Error loading data:', err)
-      } finally {
-        if (!cancelled) setLoading(false)
       }
+    } catch (err) {
+      console.error('[AdminContext] Error loading data:', err)
+    } finally {
+      setLoading(false)
     }
-
-    load()
-    return () => { cancelled = true }
   }, [user?.id, organization?.id, isSuperAdmin])
+
+  // Initial load on mount
+  useEffect(() => {
+    refreshData(true)
+  }, [refreshData])
 
   // Derived: unique dates
   const dates = [...new Set(allOrgEvents.map(e => formatDate(e.date)))].sort().reverse()
@@ -170,10 +170,12 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
       venues: venuesForDate,
       events: eventsForVenue,
       allEvents: eventsForDate,
+      allVenues,
       loading,
       setDate,
       setVenue,
       setEvent,
+      refresh: () => refreshData(false),
     }}>
       {children}
     </AdminSelectionContext.Provider>
