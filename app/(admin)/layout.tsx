@@ -4,78 +4,11 @@ import React, { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
-import { ArrowLeft, Calendar, Image as ImageIcon, BarChart3, MessageCircle, KeyRound, Users, LayoutDashboard, ClipboardList, Building2, Activity, Radio, AlertTriangle, UsersRound, CalendarClock, Music } from 'lucide-react'
+import { ArrowLeft, Calendar, MessageCircle, LayoutDashboard, Building2, AlertTriangle } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
-import { AdminSelectionProvider, useAdminSelection } from '@/lib/admin-context'
+import { AdminSelectionProvider } from '@/lib/admin-context'
 import { ToastProvider } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
-
-function AdminSelectionBar() {
-  const { selectedDate, selectedVenueId, selectedEventId, dates, venues, events, setDate, setVenue, setEvent } = useAdminSelection()
-  const pathname = usePathname()
-
-  // Pages that need event selection (per-institute features)
-  const needsEvent = ['/admin/codes', '/admin/polls', '/admin/surveys', '/admin/staff', '/admin/incidents', '/admin/schedule', '/admin/playlist'].some(p => pathname.startsWith(p))
-  // Pages that work at venue level
-  const needsVenue = needsEvent || ['/admin/photos', '/admin/chat', '/admin/dashboard'].some(p => pathname.startsWith(p))
-
-  if (dates.length === 0) return null
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-black-border bg-black-card/30">
-      {/* Date selector */}
-      <select
-        value={selectedDate || ''}
-        onChange={(e) => setDate(e.target.value || null)}
-        className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
-      >
-        <option value="" className="bg-[#1a1a1a]">Fecha...</option>
-        {dates.map(d => (
-          <option key={d} value={d} className="bg-[#1a1a1a]">{formatDateLabel(d)}</option>
-        ))}
-      </select>
-
-      {/* Venue selector */}
-      {needsVenue && selectedDate && venues.length > 0 && (
-        <>
-          <span className="text-white-muted text-xs">&rsaquo;</span>
-          <select
-            value={selectedVenueId || ''}
-            onChange={(e) => setVenue(e.target.value || null)}
-            className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
-          >
-            <option value="" className="bg-[#1a1a1a]">Venue...</option>
-            {venues.map(v => (
-              <option key={v.id} value={v.id} className="bg-[#1a1a1a]">{v.name}</option>
-            ))}
-          </select>
-        </>
-      )}
-
-      {/* Event/Instituto selector */}
-      {needsEvent && selectedVenueId && events.length > 0 && (
-        <>
-          <span className="text-white-muted text-xs">&rsaquo;</span>
-          <select
-            value={selectedEventId || ''}
-            onChange={(e) => setEvent(e.target.value || null)}
-            className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
-          >
-            <option value="" className="bg-[#1a1a1a]">Instituto...</option>
-            {events.map(ev => (
-              <option key={ev.id} value={ev.id} className="bg-[#1a1a1a]">{ev.group_name || ev.title}</option>
-            ))}
-          </select>
-        </>
-      )}
-    </div>
-  )
-}
-
-function formatDateLabel(isoDate: string): string {
-  const d = new Date(isoDate + 'T12:00:00')
-  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
-}
 
 function AdminLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
@@ -106,27 +39,17 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   if (!user || !isAdmin) return null
 
   const baseNavItems = [
-    { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
     { href: '/admin/events', label: 'Eventos', icon: Calendar },
-    { href: '/admin/photos', label: 'Fotos', icon: ImageIcon },
-    { href: '/admin/polls', label: 'Bebidas', icon: BarChart3 },
-    { href: '/admin/surveys', label: 'Encuestas', icon: ClipboardList },
-    { href: '/admin/chat', label: 'Chat', icon: MessageCircle },
-    { href: '/admin/codes', label: 'Codigos', icon: KeyRound },
-    { href: '/admin/staff', label: 'Staff', icon: Users },
-    { href: '/admin/schedule', label: 'Programa', icon: CalendarClock },
-    { href: '/admin/playlist', label: 'Playlist', icon: Music },
+    { href: '/admin/comms', label: 'Comunicacion', icon: MessageCircle },
+    { href: '/admin/incidents', label: 'Incidencias', icon: AlertTriangle },
   ]
 
   const superAdminItems = [
     { href: '/admin/org', label: 'Organizacion', icon: Building2 },
-    { href: '/admin/live', label: 'En Vivo', icon: Activity },
-    { href: '/admin/comms', label: 'Comunicados', icon: Radio },
-    { href: '/admin/incidents', label: 'Incidencias', icon: AlertTriangle },
-    { href: '/admin/users', label: 'Usuarios', icon: UsersRound },
   ]
 
-  const navItems = isSuperAdmin ? [...superAdminItems, ...baseNavItems] : baseNavItems
+  const navItems = isSuperAdmin ? [...baseNavItems, ...superAdminItems] : baseNavItems
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/')
 
@@ -194,15 +117,10 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      {/* Selection Bar */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        <AdminSelectionBar />
-
-        {/* Main Content */}
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-          {children}
-        </main>
-      </div>
+      {/* Main Content */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+        {children}
+      </main>
     </div>
   )
 }

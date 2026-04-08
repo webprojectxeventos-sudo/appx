@@ -13,9 +13,10 @@ interface GroupRowProps {
   event: Event
   otherVenues: Venue[]
   onRefresh: () => void
+  onSelect?: (event: Event) => void
 }
 
-export function GroupRow({ event, otherVenues, onRefresh }: GroupRowProps) {
+export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowProps) {
   const { error: showError, success } = useToast()
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(event.title)
@@ -97,7 +98,12 @@ export function GroupRow({ event, otherVenues, onRefresh }: GroupRowProps) {
             </button>
           </div>
         ) : (
-          <span className="text-sm text-white truncate block">{event.title}</span>
+          <button
+            onClick={() => onSelect?.(event)}
+            className="text-sm text-white truncate block text-left hover:text-primary transition-colors cursor-pointer"
+          >
+            {event.title}
+          </button>
         )}
       </div>
 

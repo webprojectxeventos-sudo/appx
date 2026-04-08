@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { UserPlus, CheckCircle2, Check } from 'lucide-react'
+import { CheckCircle2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function RegisterPage() {
@@ -78,26 +78,6 @@ export default function RegisterPage() {
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
       if (!authData.user) { setError('Error al crear la cuenta'); setLoading(false); return }
 
-      // Generar ticket inmediatamente tras registro
-      const { data: ticketData } = await supabase.rpc('generate_ticket', {
-        p_user_id: authData.user.id,
-        p_event_id: recheck.event_id,
-      })
-
-      // Enviar email con la entrada (fire-and-forget)
-      if (ticketData) {
-        fetch('/api/send-ticket', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: email,
-            userName: fullName,
-            eventTitle: recheck.event_title,
-            qrCode: ticketData,
-          }),
-        }).catch(() => {})
-      }
-
       router.push('/home')
     } catch {
       setError('Error inesperado. Intentalo de nuevo.')
@@ -105,22 +85,18 @@ export default function RegisterPage() {
     }
   }
 
-  const inputClass = 'w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors'
+  const inputClass = 'w-full px-4 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] text-white placeholder:text-white/25 text-sm focus:outline-none focus:border-primary/50 focus:bg-white/[0.05] transition-all'
 
   return (
-    <div className="card-glow p-6">
-      <div className="text-center mb-6">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center mx-auto mb-3">
-          <UserPlus className="w-6 h-6 text-gold" />
-        </div>
-        <h1 className="text-2xl font-bold text-gradient-primary">Crear Cuenta</h1>
-        <p className="text-white-muted text-sm mt-1">Usa tu codigo de acceso</p>
+    <div className="space-y-6">
+      <div className="text-center">
+        <h1 className="text-lg font-semibold text-white">Crear cuenta</h1>
+        <p className="text-white/40 text-sm mt-1">Usa tu codigo de acceso</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3">
         {/* Access Code */}
         <div>
-          <label htmlFor="accessCode" className="block text-sm font-medium text-white-muted mb-1.5">Codigo de Acceso</label>
           <input
             id="accessCode"
             type="text"
@@ -130,88 +106,76 @@ export default function RegisterPage() {
             maxLength={9}
             className={cn(
               inputClass,
-              'text-center text-xl tracking-[0.25em] font-mono uppercase',
-              validatedEvent && 'border-emerald-500/50 bg-emerald-500/5 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+              'text-center text-lg tracking-[0.25em] font-mono uppercase',
+              validatedEvent && 'border-emerald-500/40 bg-emerald-500/[0.06]'
             )}
             required
             disabled={loading}
             autoFocus
           />
           {validatedEvent && (
-            <div className="flex items-center gap-2 text-emerald-400 text-sm mt-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            <div className="flex items-center gap-2 text-emerald-400 text-xs mt-2 justify-center">
+              <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
               <span>{validatedEvent.event_title}</span>
             </div>
           )}
           {!validatedEvent && !error && (
-            <p className="text-white-muted text-xs mt-1.5">Introduce el codigo de 8 caracteres de tu entrada</p>
+            <p className="text-white/30 text-xs mt-1.5 text-center">Codigo de 8 caracteres de tu entrada</p>
           )}
         </div>
 
         {/* Rest of form — only after valid code */}
         {validatedEvent && (
-          <div className="space-y-4 animate-scale-in">
-            <div>
-              <label htmlFor="fullName" className="block text-sm font-medium text-white-muted mb-1.5">Nombre Completo</label>
-              <input
-                id="fullName"
-                type="text"
-                placeholder="Tu nombre"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className={inputClass}
-                required
-                disabled={loading}
-              />
-            </div>
+          <div className="space-y-3 animate-scale-in">
+            <input
+              id="fullName"
+              type="text"
+              placeholder="Nombre completo"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className={inputClass}
+              required
+              disabled={loading}
+            />
 
-            <div>
-              <label htmlFor="gender" className="block text-sm font-medium text-white-muted mb-1.5">Genero</label>
-              <select
-                id="gender"
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className={cn(inputClass, !gender && 'text-gray-600')}
-                required
-                disabled={loading}
-              >
-                <option value="" disabled>Selecciona...</option>
-                <option value="masculino">Masculino</option>
-                <option value="femenino">Femenino</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
+            <select
+              id="gender"
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className={cn(inputClass, !gender && 'text-white/25')}
+              required
+              disabled={loading}
+            >
+              <option value="" disabled>Genero</option>
+              <option value="masculino">Masculino</option>
+              <option value="femenino">Femenino</option>
+              <option value="otro">Otro</option>
+            </select>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-white-muted mb-1.5">Email</label>
-              <input
-                id="email"
-                type="email"
-                placeholder="tu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={inputClass}
-                required
-                disabled={loading}
-              />
-            </div>
+            <input
+              id="email"
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={inputClass}
+              required
+              disabled={loading}
+            />
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-white-muted mb-1.5">Contraseña</label>
-              <input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClass}
-                required
-                disabled={loading}
-              />
-            </div>
+            <input
+              id="password"
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClass}
+              required
+              disabled={loading}
+            />
 
             {/* Privacy checkbox */}
-            <label className="flex items-start gap-3 cursor-pointer">
+            <label className="flex items-start gap-3 cursor-pointer py-1">
               <div className="relative flex-shrink-0 mt-0.5">
                 <input
                   type="checkbox"
@@ -225,19 +189,19 @@ export default function RegisterPage() {
                     'w-5 h-5 rounded-md border transition-all flex items-center justify-center',
                     privacyAccepted
                       ? 'bg-primary/20 border-primary/50'
-                      : 'bg-transparent border-black-border'
+                      : 'bg-transparent border-white/[0.08]'
                   )}
                 >
                   {privacyAccepted && <Check className="w-3 h-3 text-primary" />}
                 </div>
               </div>
-              <p className="text-[11px] text-white-muted/60 leading-relaxed">
+              <p className="text-[11px] text-white/30 leading-relaxed">
                 He leido y acepto la{' '}
-                <Link href="/privacy" className="text-white-muted hover:text-white underline transition-colors" target="_blank">
+                <Link href="/privacy" className="text-white/50 hover:text-white underline transition-colors" target="_blank">
                   Politica de Privacidad
                 </Link>{' '}
                 y los{' '}
-                <Link href="/terms" className="text-white-muted hover:text-white underline transition-colors" target="_blank">
+                <Link href="/terms" className="text-white/50 hover:text-white underline transition-colors" target="_blank">
                   Terminos de Servicio
                 </Link>
               </p>
@@ -246,7 +210,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading || !privacyAccepted}
-              className="btn-primary w-full py-3.5 text-base disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-primary w-full py-3.5 text-sm font-semibold"
             >
               {loading ? 'Registrando...' : 'Registrarse'}
             </button>
@@ -254,18 +218,16 @@ export default function RegisterPage() {
         )}
 
         {error && (
-          <p className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{error}</p>
+          <p className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">{error}</p>
         )}
       </form>
 
-      <div className="mt-5 text-center">
-        <p className="text-white-muted text-sm">
-          Ya tienes cuenta?{' '}
-          <Link href="/login" className="text-accent-gradient font-semibold hover:opacity-80 transition-opacity">
-            Inicia sesion
-          </Link>
-        </p>
-      </div>
+      <p className="text-center text-sm text-white/40">
+        Ya tienes cuenta?{' '}
+        <Link href="/login" className="text-white font-medium hover:text-primary transition-colors">
+          Inicia sesion
+        </Link>
+      </p>
     </div>
   )
 }

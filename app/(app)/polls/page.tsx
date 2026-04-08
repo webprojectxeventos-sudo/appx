@@ -148,13 +148,26 @@ export default function DrinksPage() {
         if (error) throw error
         setExistingOrder(true)
       }
-      // Generate ticket QR if not already generated
+      // Generate ticket QR if not already generated, then send email
       if (!qrCode) {
         const { data: ticketQr } = await supabase.rpc('generate_ticket', {
           p_user_id: user.id,
           p_event_id: event.id,
         })
-        if (ticketQr) setQrCode(ticketQr as string)
+        if (ticketQr) {
+          setQrCode(ticketQr as string)
+          // Send QR ticket email
+          fetch('/api/send-ticket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: profile?.email || user.email,
+              userName: profile?.full_name || '',
+              eventTitle: event.title,
+              qrCode: ticketQr,
+            }),
+          }).catch(() => {})
+        }
       }
       setSubmitted(true)
     } catch (err) {

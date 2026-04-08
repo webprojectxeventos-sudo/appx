@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
-import { User, Camera, Check, ChevronLeft, Bell, BellOff } from 'lucide-react'
+import { User, Camera, Check, ChevronLeft, Bell, BellOff, Lock } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +32,13 @@ export default function ProfilePage() {
   }, [profile])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Password change
+  const [showPasswordChange, setShowPasswordChange] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -128,6 +135,35 @@ export default function ProfilePage() {
       showError('Error al cambiar notificaciones')
     } finally {
       setPushLoading(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (!user || !profile?.email) return
+    if (newPassword.length < 6) { showError('La contraseña debe tener al menos 6 caracteres'); return }
+    if (newPassword !== confirmPassword) { showError('Las contraseñas no coinciden'); return }
+
+    setPasswordLoading(true)
+    try {
+      // Verify current password by re-signing in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: profile.email,
+        password: currentPassword,
+      })
+      if (signInError) { showError('Contraseña actual incorrecta'); setPasswordLoading(false); return }
+
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) { showError(error.message); setPasswordLoading(false); return }
+
+      success('Contraseña actualizada')
+      setShowPasswordChange(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch {
+      showError('Error al cambiar la contraseña')
+    } finally {
+      setPasswordLoading(false)
     }
   }
 
@@ -237,6 +273,57 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Password Change */}
+      <div className="card p-5">
+        {!showPasswordChange ? (
+          <button
+            onClick={() => setShowPasswordChange(true)}
+            className="flex items-center gap-3 w-full text-left"
+          >
+            <Lock className="w-5 h-5 text-white-muted" />
+            <div>
+              <p className="text-sm font-medium text-white">Cambiar contraseña</p>
+              <p className="text-[11px] text-white-muted">Actualiza tu contraseña de acceso</p>
+            </div>
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-medium text-white">Cambiar contraseña</p>
+              <button onClick={() => { setShowPasswordChange(false); setCurrentPassword(''); setNewPassword(''); setConfirmPassword('') }} className="text-xs text-white-muted hover:text-white transition-colors">Cancelar</button>
+            </div>
+            <input
+              type="password"
+              placeholder="Contraseña actual"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Nueva contraseña"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Confirmar nueva contraseña"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
+            />
+            <button
+              onClick={handleChangePassword}
+              disabled={passwordLoading || !currentPassword || !newPassword || !confirmPassword}
+              className="btn-primary w-full py-2.5 text-sm"
+            >
+              {passwordLoading ? 'Actualizando...' : 'Actualizar contraseña'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Save */}
       <button

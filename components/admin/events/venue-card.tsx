@@ -19,9 +19,10 @@ interface VenueCardProps {
   organizationId: string
   userId: string
   onRefresh: () => void
+  onSelectGroup?: (event: Event) => void
 }
 
-export function VenueCard({ venue, groups, otherVenues, date, organizationId, userId, onRefresh }: VenueCardProps) {
+export function VenueCard({ venue, groups, otherVenues, date, organizationId, userId, onRefresh, onSelectGroup }: VenueCardProps) {
   const [showBatch, setShowBatch] = useState(false)
 
   // Determine dominant event type from existing groups, default to 'fiesta'
@@ -67,6 +68,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
                 event={group}
                 otherVenues={otherVenues}
                 onRefresh={onRefresh}
+                onSelect={onSelectGroup}
               />
             ))
           )}

@@ -1,496 +1,421 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
-import { Radio, Send, FileText, Plus, Check, Clock, Users, X, Bell, BellRing, Zap } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
+import { SearchInput } from '@/components/admin/search-input'
+import { Pagination } from '@/components/admin/pagination'
+import { cn } from '@/lib/utils'
+import {
+  Send, Radio, MessageCircle, Shield, Trash2, Pin, PinOff, VolumeX, Volume2,
+  Check, FileText, Plus, X, Bell, BellRing, Zap, Clock, Users,
+} from 'lucide-react'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
+type Message = Database['public']['Tables']['messages']['Row']
 type MessageTemplate = Database['public']['Tables']['message_templates']['Row']
 type BroadcastLog = Database['public']['Tables']['broadcast_log']['Row']
 
-export default function CommsPage() {
-  const { user, organization, isSuperAdmin, initialized } = useAuth()
-  const { events: venueEvents, allEvents, selectedVenueId } = useAdminSelection()
-  const { error: showError, success } = useToast()
-  // Use venue-filtered events for recipient selection
-  const events = selectedVenueId ? venueEvents : allEvents
-  const [templates, setTemplates] = useState<MessageTemplate[]>([])
-  const [broadcasts, setBroadcasts] = useState<BroadcastLog[]>([])
-  const [loading, setLoading] = useState(true)
+interface MessageWithUser extends Message {
+  userName: string
+  userAvatar: string | null
+}
 
-  // Broadcast form
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([])
+type ActiveTab = 'broadcast' | 'moderation'
+
+const PAGE_SIZE = 30
+
+function formatDateStr(dateStr: string): string {
+  return new Date(dateStr).toISOString().split('T')[0]
+}
+
+export default function CommsPage() {
+  const { user, organization, isSuperAdmin, isAdmin, initialized } = useAuth()
+  const { allVenues } = useAdminSelection()
+  const { error: showError, success } = useToast()
+
+  // Local data
+  const [allEvents, setAllEvents] = useState<Event[]>([])
+  const [activeTab, setActiveTab] = useState<ActiveTab>('broadcast')
+
+  // Inline selectors
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null)
+
+  // Broadcast state
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [selectAll, setSelectAll] = useState(false)
   const [sendPush, setSendPush] = useState(false)
+  const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const [broadcasts, setBroadcasts] = useState<BroadcastLog[]>([])
 
-  // Direct push form
-  const [showPushForm, setShowPushForm] = useState(false)
-  const [pushTitle, setPushTitle] = useState('')
-  const [pushBody, setPushBody] = useState('')
-  const [pushUrl, setPushUrl] = useState('')
-  const [pushTarget, setPushTarget] = useState<'all' | 'venue' | 'events'>('venue')
-  const [sendingPush, setSendingPush] = useState(false)
+  // Moderation state
+  const [modMessages, setModMessages] = useState<MessageWithUser[]>([])
+  const [modSearch, setModSearch] = useState('')
+  const [modPage, setModPage] = useState(1)
+  const [modTotal, setModTotal] = useState(0)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
+  const [modLoading, setModLoading] = useState(false)
 
-  // Template form
-  const [showTemplateForm, setShowTemplateForm] = useState(false)
-  const [templateTitle, setTemplateTitle] = useState('')
-  const [templateContent, setTemplateContent] = useState('')
+  const userCacheRef = useRef<Record<string, { name: string; avatar: string | null }>>({})
+  const modTotalPages = Math.ceil(modTotal / PAGE_SIZE)
 
+  // Fetch events
+  useEffect(() => {
+    if (!user || !organization?.id) return
+    const fetch = async () => {
+      let query = supabase.from('events').select('*').order('date', { ascending: true })
+      if (isSuperAdmin && organization.id) {
+        query = query.eq('organization_id', organization.id)
+      } else {
+        query = query.eq('created_by', user.id)
+      }
+      const { data } = await query
+      setAllEvents(data || [])
+    }
+    fetch()
+  }, [user?.id, organization?.id, isSuperAdmin])
+
+  // Fetch templates & broadcast history
   useEffect(() => {
     if (!organization?.id) return
-    let cancelled = false
-    fetchData().then(() => { if (cancelled) return })
-    return () => { cancelled = true }
+    const fetch = async () => {
+      const [tmplRes, logRes] = await Promise.all([
+        supabase.from('message_templates').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }),
+        supabase.from('broadcast_log').select('*').eq('organization_id', organization.id).order('sent_at', { ascending: false }).limit(20),
+      ])
+      setTemplates(tmplRes.data || [])
+      setBroadcasts(logRes.data || [])
+    }
+    fetch()
   }, [organization?.id])
 
-  // Reset selection when venue changes
+  // Derived: dates
+  const dates = [...new Set(allEvents.map(e => formatDateStr(e.date)))].sort()
+
+  // Auto-select date
   useEffect(() => {
-    setSelectedEvents([])
-    setSelectAll(false)
-  }, [selectedVenueId])
+    if (selectedDate && dates.includes(selectedDate)) return
+    if (dates.length === 0) { setSelectedDate(null); return }
+    const today = new Date().toISOString().split('T')[0]
+    setSelectedDate(dates.find(d => d >= today) || dates[dates.length - 1])
+  }, [dates, selectedDate])
 
-  const fetchData = async () => {
-    if (!organization?.id) return
-    setLoading(true)
-    const [tmplRes, logRes] = await Promise.all([
-      supabase.from('message_templates').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }),
-      supabase.from('broadcast_log').select('*').eq('organization_id', organization.id).order('sent_at', { ascending: false }).limit(20),
-    ])
-    setTemplates(tmplRes.data || [])
-    setBroadcasts(logRes.data || [])
-    setLoading(false)
-  }
+  // Events for date
+  const eventsForDate = allEvents.filter(e => selectedDate && formatDateStr(e.date) === selectedDate)
 
-  const toggleEvent = (eventId: string) => {
-    setSelectedEvents(prev =>
-      prev.includes(eventId) ? prev.filter(id => id !== eventId) : [...prev, eventId]
-    )
-  }
+  // Venues for date
+  const venueIdsForDate = new Set(eventsForDate.map(e => e.venue_id).filter(Boolean))
+  const venuesForDate = allVenues.filter(v => venueIdsForDate.has(v.id))
 
-  const handleSelectAll = () => {
-    if (selectAll) {
-      setSelectedEvents([])
-    } else {
-      setSelectedEvents(events.map(e => e.id))
+  // Active events (filtered by venue)
+  const activeEvents = selectedVenueId
+    ? eventsForDate.filter(e => e.venue_id === selectedVenueId)
+    : eventsForDate
+
+  // Reset selections on date change
+  useEffect(() => { setSelectedVenueId(null); setSelectedEventIds([]); setSelectAll(false) }, [selectedDate])
+  useEffect(() => { setSelectedEventIds([]); setSelectAll(false) }, [selectedVenueId])
+
+  // Resolve user names
+  const resolveUserNames = useCallback(async (msgs: Message[]): Promise<MessageWithUser[]> => {
+    const unknownIds = [...new Set(msgs.map(m => m.user_id).filter(id => !userCacheRef.current[id]))]
+    if (unknownIds.length > 0) {
+      const { data } = await supabase.from('users').select('id, full_name, avatar_url').in('id', unknownIds)
+      data?.forEach(u => { userCacheRef.current[u.id] = { name: u.full_name || 'Usuario', avatar: u.avatar_url } })
     }
+    return msgs.map(m => ({
+      ...m,
+      userName: userCacheRef.current[m.user_id]?.name || 'Usuario',
+      userAvatar: userCacheRef.current[m.user_id]?.avatar || null,
+    }))
+  }, [])
+
+  // Fetch moderation messages
+  const fetchModMessages = useCallback(async () => {
+    if (activeTab !== 'moderation' || activeEvents.length === 0) { setModMessages([]); setModTotal(0); return }
+    setModLoading(true)
+    try {
+      const eventIds = activeEvents.map(e => e.id)
+      let query = supabase.from('messages').select('*', { count: 'exact' }).in('event_id', eventIds).order('created_at', { ascending: false })
+      if (modSearch.trim()) query = query.ilike('content', `%${modSearch.trim()}%`)
+      const from = (modPage - 1) * PAGE_SIZE
+      query = query.range(from, from + PAGE_SIZE - 1)
+      const { data, count, error } = await query
+      if (error) throw error
+      const enriched = await resolveUserNames(data || [])
+      setModMessages(enriched)
+      setModTotal(count || 0)
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setModLoading(false)
+    }
+  }, [activeTab, activeEvents.length, modSearch, modPage, resolveUserNames])
+
+  useEffect(() => { fetchModMessages() }, [fetchModMessages])
+  useEffect(() => { setModPage(1) }, [modSearch])
+
+  // Muted users
+  const fetchMutedUsers = useCallback(async () => {
+    const eventIds = activeEvents.map(e => e.id)
+    if (eventIds.length === 0) return
+    const { data } = await supabase.from('user_events').select('user_id').in('event_id', eventIds).eq('is_muted', true)
+    if (data) setMutedUsers(new Set(data.map(d => d.user_id)))
+  }, [activeEvents.length])
+
+  useEffect(() => { if (activeTab === 'moderation') fetchMutedUsers() }, [activeTab, fetchMutedUsers])
+
+  // Broadcast handlers
+  const toggleEvent = (id: string) => setSelectedEventIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  const handleSelectAll = () => {
+    if (selectAll) { setSelectedEventIds([]) } else { setSelectedEventIds(activeEvents.map(e => e.id)) }
     setSelectAll(!selectAll)
   }
 
-  const sendPushNotification = async (params: {
-    title: string
-    body: string
-    url?: string
-    event_ids?: string[]
-    venue_id?: string
-    send_to_all?: boolean
-  }) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return { sent: 0, failed: 0 }
-
-      const res = await fetch('/api/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(params),
-      })
-      return await res.json()
-    } catch (err) {
-      console.error('[Push] Error:', err)
-      return { sent: 0, failed: 0 }
-    }
-  }
-
   const handleSendBroadcast = async () => {
-    if (!message.trim() || selectedEvents.length === 0 || !user || !organization?.id) return
+    if (!message.trim() || selectedEventIds.length === 0 || !user || !organization?.id) return
     setSending(true)
-
     try {
-      // Insert a message in each selected event's chat as an announcement
-      const messageInserts = selectedEvents.map(eventId => ({
-        event_id: eventId,
-        user_id: user.id,
-        content: message.trim(),
-        is_announcement: true,
-      }))
-
-      const { error: msgError } = await supabase.from('messages').insert(messageInserts)
+      const inserts = selectedEventIds.map(eventId => ({ event_id: eventId, user_id: user.id, content: message.trim(), is_announcement: true }))
+      const { error: msgError } = await supabase.from('messages').insert(inserts)
       if (msgError) throw msgError
+      await supabase.from('broadcast_log').insert({ organization_id: organization.id, event_ids: selectedEventIds, content: message.trim(), sent_by: user.id })
 
-      // Log the broadcast
-      const { error: logError } = await supabase.from('broadcast_log').insert({
-        organization_id: organization.id,
-        event_ids: selectedEvents,
-        content: message.trim(),
-        sent_by: user.id,
-      })
-      if (logError) console.error('Broadcast log error:', logError)
-
-      // Send push notification if enabled
-      let pushResult = null
       if (sendPush) {
-        pushResult = await sendPushNotification({
-          title: 'Anuncio',
-          body: message.trim().slice(0, 200),
-          url: '/chat',
-          event_ids: selectedEvents,
-        })
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            await fetch('/api/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ title: 'Anuncio', body: message.trim().slice(0, 200), url: '/chat', event_ids: selectedEventIds }),
+            })
+          }
+        } catch {}
       }
 
-      const pushMsg = pushResult?.sent ? ` (${pushResult.sent} push enviados)` : ''
-      success(`Comunicado enviado correctamente${pushMsg}`)
+      success('Comunicado enviado')
       setMessage('')
-      setSelectedEvents([])
+      setSelectedEventIds([])
       setSelectAll(false)
       setSendPush(false)
-      fetchData()
+      // Refresh broadcasts
+      const { data: logData } = await supabase.from('broadcast_log').select('*').eq('organization_id', organization.id).order('sent_at', { ascending: false }).limit(20)
+      setBroadcasts(logData || [])
     } catch (err) {
-      console.error('Error sending broadcast:', err)
-      showError('Error al enviar el comunicado')
+      showError('Error al enviar')
     } finally {
       setSending(false)
     }
   }
 
-  const handleSendDirectPush = async () => {
-    if (!pushTitle.trim() || !pushBody.trim()) return
-    setSendingPush(true)
-
-    try {
-      const params: Parameters<typeof sendPushNotification>[0] = {
-        title: pushTitle.trim(),
-        body: pushBody.trim(),
-        url: pushUrl.trim() || '/home',
-      }
-
-      if (pushTarget === 'all') {
-        params.send_to_all = true
-      } else if (pushTarget === 'venue' && selectedVenueId) {
-        params.venue_id = selectedVenueId
-      } else if (pushTarget === 'events' && selectedEvents.length > 0) {
-        params.event_ids = selectedEvents
-      } else {
-        showError('Selecciona destinatarios')
-        setSendingPush(false)
-        return
-      }
-
-      const result = await sendPushNotification(params)
-      if (result.sent > 0) {
-        success(`Push enviado a ${result.sent} dispositivo(s)`)
-      } else {
-        showError(result.message || 'No se encontraron suscripciones push')
-      }
-
-      setPushTitle('')
-      setPushBody('')
-      setPushUrl('')
-      setShowPushForm(false)
-    } catch (err) {
-      console.error('Error sending push:', err)
-      showError('Error al enviar push')
-    } finally {
-      setSendingPush(false)
-    }
+  // Moderation actions
+  const handleDeleteMsg = async (msgId: string) => {
+    const { error } = await supabase.from('messages').delete().eq('id', msgId)
+    if (error) { showError('Error al eliminar'); return }
+    success('Eliminado')
+    setConfirmDelete(null)
+    fetchModMessages()
   }
 
-  const handleSaveTemplate = async () => {
-    if (!templateTitle || !templateContent || !user || !organization?.id) return
-    await supabase.from('message_templates').insert({
-      organization_id: organization.id,
-      title: templateTitle,
-      content: templateContent,
-      created_by: user.id,
-    })
-    setShowTemplateForm(false)
-    setTemplateTitle('')
-    setTemplateContent('')
-    fetchData()
+  const handleTogglePin = async (msg: MessageWithUser) => {
+    const { error } = await supabase.from('messages').update({ is_pinned: !msg.is_pinned }).eq('id', msg.id)
+    if (error) { showError('Error'); return }
+    success(msg.is_pinned ? 'Desfijado' : 'Fijado')
+    fetchModMessages()
   }
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('Eliminar esta plantilla?')) return
-    await supabase.from('message_templates').delete().eq('id', id)
-    fetchData()
+  const handleToggleMute = async (userId: string) => {
+    const eventIds = activeEvents.map(e => e.id)
+    if (eventIds.length === 0) return
+    const isMuted = mutedUsers.has(userId)
+    const { error } = await supabase.from('user_events').update({ is_muted: !isMuted }).eq('user_id', userId).in('event_id', eventIds)
+    if (error) { showError('Error'); return }
+    setMutedUsers(prev => { const next = new Set(prev); if (isMuted) next.delete(userId); else next.add(userId); return next })
+    success(isMuted ? 'Desilenciado' : 'Silenciado')
   }
 
-  const useTemplate = (tmpl: MessageTemplate) => {
-    setMessage(tmpl.content)
-  }
+  const formatDate = (ds: string) => new Date(ds).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
   const inputClass = 'w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors'
 
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
-  if (!isSuperAdmin) return null
-
-  if (loading) {
-    return (
-      <div className="space-y-6 animate-fade-in">
-        <div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" />
-        {[0, 1, 2].map(i => <div key={i} className="card h-32 animate-pulse" />)}
-      </div>
-    )
-  }
+  if (!isAdmin) return null
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div>
-        <h1 className="text-xl font-bold text-white">Comunicados</h1>
-        <p className="text-sm text-white-muted mt-0.5">Envia mensajes a todos los grupos o a grupos seleccionados</p>
-      </div>
-
-      {/* Broadcast Composer */}
-      <div className="card-accent p-5 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Radio className="w-5 h-5 text-primary" />
-          <h2 className="text-base font-bold text-white">Nuevo comunicado</h2>
-        </div>
-
-        {/* Event selection */}
+    <div className="space-y-6 animate-fade-in">
+      {/* Header with inline selectors */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm text-white-muted">Destinatarios</label>
-            <button onClick={handleSelectAll} className="text-xs text-primary hover:underline">
-              {selectAll ? 'Deseleccionar todos' : 'Seleccionar todos'}
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {events.map(ev => {
-              const selected = selectedEvents.includes(ev.id)
-              return (
-                <button
-                  key={ev.id}
-                  onClick={() => toggleEvent(ev.id)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
-                    selected
-                      ? 'border-primary bg-primary/12 text-primary'
-                      : 'border-black-border text-white-muted hover:border-white/15'
-                  )}
-                >
-                  {selected && <Check className="w-3 h-3" />}
-                  {ev.group_name || ev.title}
-                </button>
-              )
-            })}
-          </div>
-          {selectedEvents.length > 0 && (
-            <p className="text-[11px] text-primary mt-2">{selectedEvents.length} grupo(s) seleccionado(s)</p>
+          <h1 className="text-xl font-bold text-white">Comunicacion</h1>
+          <p className="text-sm text-white-muted mt-0.5">Comunicados, anuncios y moderacion</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {dates.length > 0 && (
+            <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value || null)} className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40">
+              {dates.map(d => <option key={d} value={d} className="bg-[#1a1a1a]">{new Date(d + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}</option>)}
+            </select>
+          )}
+          {venuesForDate.length > 0 && (
+            <select value={selectedVenueId || ''} onChange={e => setSelectedVenueId(e.target.value || null)} className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40">
+              <option value="" className="bg-[#1a1a1a]">Todos los venues</option>
+              {venuesForDate.map(v => <option key={v.id} value={v.id} className="bg-[#1a1a1a]">{v.name}</option>)}
+            </select>
           )}
         </div>
+      </div>
 
-        {/* Message */}
-        <div>
-          <label className="text-sm text-white-muted mb-1 block">Mensaje</label>
-          <textarea
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            placeholder="Escribe el comunicado que quieres enviar a los grupos seleccionados..."
-            rows={4}
-            className={cn(inputClass, 'resize-none')}
-          />
-        </div>
-
-        {/* Quick templates */}
-        {templates.length > 0 && (
-          <div>
-            <label className="text-[11px] text-white-muted mb-1.5 block">Plantillas rapidas</label>
-            <div className="flex flex-wrap gap-2">
-              {templates.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => useTemplate(t)}
-                  className="px-3 py-1.5 rounded-lg text-xs border border-black-border text-white-muted hover:border-primary/30 hover:text-primary transition-all"
-                >
-                  <FileText className="w-3 h-3 inline mr-1" /> {t.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Push toggle */}
-        <label className="flex items-center gap-3 cursor-pointer">
-          <button
-            type="button"
-            onClick={() => setSendPush(!sendPush)}
-            className={cn(
-              'relative w-11 h-6 rounded-full transition-colors',
-              sendPush ? 'bg-primary' : 'bg-white/10'
-            )}
-          >
-            <div className={cn(
-              'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform',
-              sendPush && 'translate-x-5'
-            )} />
-          </button>
-          <div className="flex items-center gap-2">
-            {sendPush ? <BellRing className="w-4 h-4 text-primary" /> : <Bell className="w-4 h-4 text-white-muted" />}
-            <span className={cn('text-sm', sendPush ? 'text-white' : 'text-white-muted')}>
-              Enviar tambien como push notification
-            </span>
-          </div>
-        </label>
-
-        <button
-          onClick={handleSendBroadcast}
-          disabled={!message.trim() || selectedEvents.length === 0 || sending}
-          className="btn-primary w-full py-3 text-sm"
-        >
-          <Send className="w-4 h-4" />
-          {sending ? 'Enviando...' : `Enviar a ${selectedEvents.length} grupo(s)`}
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 rounded-xl bg-black-card border border-black-border w-fit">
+        <button onClick={() => setActiveTab('broadcast')} className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all', activeTab === 'broadcast' ? 'bg-primary text-white' : 'text-white-muted hover:text-white')}>
+          <Radio className="w-4 h-4" /> Comunicados
+        </button>
+        <button onClick={() => setActiveTab('moderation')} className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all', activeTab === 'moderation' ? 'bg-primary text-white' : 'text-white-muted hover:text-white')}>
+          <Shield className="w-4 h-4" /> Moderacion
         </button>
       </div>
 
-      {/* Direct Push Notification */}
-      <div className="card p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-amber-400" />
-            <h2 className="text-base font-bold text-white">Push Directo</h2>
-          </div>
-          <button onClick={() => setShowPushForm(!showPushForm)} className="btn-ghost text-xs">
-            {showPushForm ? 'Cerrar' : 'Nuevo push'}
-          </button>
-        </div>
-        <p className="text-[11px] text-white-muted">Envia una notificacion push sin mensaje en el chat. Ideal para avisos rapidos.</p>
+      {activeEvents.length === 0 && (
+        <div className="card p-8 text-center"><p className="text-white-muted">No hay eventos para esta fecha.</p></div>
+      )}
 
-        {showPushForm && (
-          <div className="space-y-3 pt-2 border-t border-black-border">
-            <input
-              type="text"
-              value={pushTitle}
-              onChange={e => setPushTitle(e.target.value)}
-              placeholder="Titulo de la notificacion"
-              className={inputClass}
-            />
-            <textarea
-              value={pushBody}
-              onChange={e => setPushBody(e.target.value)}
-              placeholder="Mensaje..."
-              rows={2}
-              className={cn(inputClass, 'resize-none')}
-            />
-            <input
-              type="text"
-              value={pushUrl}
-              onChange={e => setPushUrl(e.target.value)}
-              placeholder="URL destino (opcional, ej: /gallery)"
-              className={inputClass}
-            />
+      {/* Broadcast Tab */}
+      {activeTab === 'broadcast' && activeEvents.length > 0 && (
+        <>
+          <div className="card-accent p-5 space-y-4">
+            <div className="flex items-center gap-2"><Radio className="w-5 h-5 text-primary" /><h2 className="text-base font-bold text-white">Nuevo comunicado</h2></div>
 
-            {/* Target selector */}
             <div>
-              <label className="text-[11px] text-white-muted mb-2 block">Destinatarios</label>
-              <div className="flex gap-2">
-                {([
-                  { key: 'all' as const, label: 'Todos' },
-                  { key: 'venue' as const, label: 'Este venue' },
-                  { key: 'events' as const, label: 'Grupos seleccionados' },
-                ]).map(opt => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setPushTarget(opt.key)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
-                      pushTarget === opt.key
-                        ? 'border-amber-400 bg-amber-400/12 text-amber-400'
-                        : 'border-black-border text-white-muted hover:border-white/15'
-                    )}
-                  >
-                    {opt.label}
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm text-white-muted">Destinatarios</label>
+                <button onClick={handleSelectAll} className="text-xs text-primary hover:underline">{selectAll ? 'Deseleccionar' : 'Seleccionar todos'}</button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activeEvents.map(ev => {
+                  const sel = selectedEventIds.includes(ev.id)
+                  return (
+                    <button key={ev.id} onClick={() => toggleEvent(ev.id)} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all', sel ? 'border-primary bg-primary/12 text-primary' : 'border-black-border text-white-muted hover:border-white/15')}>
+                      {sel && <Check className="w-3 h-3" />} {ev.group_name || ev.title}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Escribe el comunicado..." rows={4} className={cn(inputClass, 'resize-none')} />
+
+            {templates.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {templates.map(t => (
+                  <button key={t.id} onClick={() => setMessage(t.content)} className="px-3 py-1.5 rounded-lg text-xs border border-black-border text-white-muted hover:border-primary/30 hover:text-primary transition-all">
+                    <FileText className="w-3 h-3 inline mr-1" /> {t.title}
                   </button>
                 ))}
               </div>
-            </div>
+            )}
 
-            <button
-              onClick={handleSendDirectPush}
-              disabled={!pushTitle.trim() || !pushBody.trim() || sendingPush}
-              className="w-full py-2.5 rounded-xl text-sm font-medium bg-amber-500/15 border border-amber-400/30 text-amber-400 hover:bg-amber-500/25 transition-colors disabled:opacity-40"
-            >
-              <Zap className="w-4 h-4 inline mr-1.5" />
-              {sendingPush ? 'Enviando...' : 'Enviar push'}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <button type="button" onClick={() => setSendPush(!sendPush)} className={cn('relative w-11 h-6 rounded-full transition-colors', sendPush ? 'bg-primary' : 'bg-white/10')}>
+                <div className={cn('absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform', sendPush && 'translate-x-5')} />
+              </button>
+              <span className={cn('text-sm flex items-center gap-2', sendPush ? 'text-white' : 'text-white-muted')}>
+                {sendPush ? <BellRing className="w-4 h-4 text-primary" /> : <Bell className="w-4 h-4" />} Push notification
+              </span>
+            </label>
+
+            <button onClick={handleSendBroadcast} disabled={!message.trim() || selectedEventIds.length === 0 || sending} className="btn-primary w-full py-3 text-sm">
+              <Send className="w-4 h-4" /> {sending ? 'Enviando...' : `Enviar a ${selectedEventIds.length} grupo(s)`}
             </button>
           </div>
-        )}
-      </div>
 
-      {/* Templates Management */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-white">Plantillas</h2>
-          <button onClick={() => setShowTemplateForm(true)} className="btn-ghost text-xs">
-            <Plus className="w-3.5 h-3.5" /> Nueva
-          </button>
-        </div>
-
-        {showTemplateForm && (
-          <div className="card p-4 mb-3 space-y-3 border-primary/20">
-            <input type="text" placeholder="Titulo de la plantilla" value={templateTitle} onChange={e => setTemplateTitle(e.target.value)} className={inputClass} />
-            <textarea placeholder="Contenido" value={templateContent} onChange={e => setTemplateContent(e.target.value)} rows={3} className={cn(inputClass, 'resize-none')} />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowTemplateForm(false)} className="btn-ghost text-xs">Cancelar</button>
-              <button onClick={handleSaveTemplate} className="btn-primary text-xs">Guardar</button>
+          {/* Broadcast History */}
+          <div>
+            <h2 className="text-base font-bold text-white mb-3">Historial</h2>
+            <div className="space-y-2">
+              {broadcasts.map(b => {
+                const targetEvents = allEvents.filter(e => b.event_ids.includes(e.id))
+                return (
+                  <div key={b.id} className="card p-4 space-y-2">
+                    <p className="text-sm text-white">{b.content}</p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-[10px] text-white-muted"><Users className="w-3 h-3" /><span>{targetEvents.map(e => e.group_name || e.title).join(', ')}</span></div>
+                      <span className="text-[10px] text-white-muted flex items-center gap-1"><Clock className="w-3 h-3" />{new Date(b.sent_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {broadcasts.length === 0 && <div className="card p-8 text-center"><Radio className="w-8 h-8 text-white-muted mx-auto mb-2" /><p className="text-white-muted text-sm">Sin comunicados.</p></div>}
             </div>
           </div>
-        )}
+        </>
+      )}
 
-        <div className="space-y-2">
-          {templates.map(t => (
-            <div key={t.id} className="card p-4 flex items-start gap-3">
-              <FileText className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white">{t.title}</p>
-                <p className="text-[11px] text-white-muted line-clamp-2 mt-0.5">{t.content}</p>
-              </div>
-              <button onClick={() => handleDeleteTemplate(t.id)} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0">
-                <X className="w-3.5 h-3.5 text-red-400" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Moderation Tab */}
+      {activeTab === 'moderation' && activeEvents.length > 0 && (
+        <>
+          <SearchInput value={modSearch} onChange={setModSearch} placeholder="Buscar en mensajes..." />
 
-      {/* Broadcast History */}
-      <div>
-        <h2 className="text-base font-bold text-white mb-3">Historial de comunicados</h2>
-        <div className="space-y-2">
-          {broadcasts.map(b => {
-            const targetEvents = allEvents.filter(e => b.event_ids.includes(e.id))
-            return (
-              <div key={b.id} className="card p-4 space-y-2">
-                <p className="text-sm text-white">{b.content}</p>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[10px] text-white-muted">
-                    <Users className="w-3 h-3" />
-                    <span>{targetEvents.map(e => e.group_name || e.title).join(', ')}</span>
+          {modLoading ? (
+            <div className="space-y-2">{[0, 1, 2].map(i => <div key={i} className="card h-20 animate-pulse" />)}</div>
+          ) : modMessages.length === 0 ? (
+            <div className="card p-8 text-center"><MessageCircle className="w-8 h-8 text-white-muted mx-auto mb-2" /><p className="text-white-muted text-sm">No hay mensajes</p></div>
+          ) : (
+            <div className="space-y-2">
+              {modMessages.map(msg => {
+                const isMuted = mutedUsers.has(msg.user_id)
+                return (
+                  <div key={msg.id} className={cn('card p-4', msg.is_pinned && 'border-amber-400/20')}>
+                    <div className="flex items-start gap-3">
+                      {msg.userAvatar ? (
+                        <Image src={msg.userAvatar} alt="" width={36} height={36} className="w-9 h-9 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold bg-primary/10 text-primary">{msg.userName[0].toUpperCase()}</div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-sm font-medium text-white">{msg.userName}</span>
+                          {isMuted && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400">Silenciado</span>}
+                          {msg.is_pinned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400">Fijado</span>}
+                          <span className="text-[10px] text-white-muted ml-auto">{formatDate(msg.created_at)}</span>
+                        </div>
+                        <p className="text-sm text-white/80 whitespace-pre-wrap break-words">{msg.content}</p>
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <button onClick={() => handleTogglePin(msg)} className={cn('text-[11px] font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors', msg.is_pinned ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-white-muted hover:bg-white/10')}>
+                            {msg.is_pinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />} {msg.is_pinned ? 'Desfijar' : 'Fijar'}
+                          </button>
+                          <button onClick={() => handleToggleMute(msg.user_id)} className={cn('text-[11px] font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors', isMuted ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white-muted hover:bg-white/10')}>
+                            {isMuted ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />} {isMuted ? 'Desilenciar' : 'Silenciar'}
+                          </button>
+                          {confirmDelete === msg.id ? (
+                            <div className="flex gap-1 ml-auto">
+                              <button onClick={() => handleDeleteMsg(msg.id)} className="text-[11px] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400">Confirmar</button>
+                              <button onClick={() => setConfirmDelete(null)} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-white-muted">Cancelar</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmDelete(msg.id)} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-red-400 hover:bg-red-500/10 flex items-center gap-1 ml-auto">
+                              <Trash2 className="w-3 h-3" /> Eliminar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-white-muted flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {new Date(b.sent_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          {broadcasts.length === 0 && (
-            <div className="card p-8 text-center">
-              <Radio className="w-8 h-8 text-white-muted mx-auto mb-2" />
-              <p className="text-white-muted text-sm">No hay comunicados enviados.</p>
+                )
+              })}
             </div>
           )}
-        </div>
-      </div>
+
+          <Pagination currentPage={modPage} totalPages={modTotalPages} onPageChange={setModPage} />
+        </>
+      )}
     </div>
   )
 }

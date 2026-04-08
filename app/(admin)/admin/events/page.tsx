@@ -11,6 +11,7 @@ import { SearchInput } from '@/components/admin/search-input'
 import { DateStrip } from '@/components/admin/events/date-strip'
 import { VenueCard } from '@/components/admin/events/venue-card'
 import { NewSessionModal } from '@/components/admin/events/new-session-modal'
+import { GroupDetailDrawer } from '@/components/admin/events/group-detail-drawer'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
@@ -38,6 +39,9 @@ export default function EventsPage() {
 
   // Track manually added empty venues for a date
   const [manualVenues, setManualVenues] = useState<Set<string>>(new Set())
+
+  // Drawer for group detail
+  const [drawerEvent, setDrawerEvent] = useState<Event | null>(null)
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -225,6 +229,7 @@ export default function EventsPage() {
               organizationId={organization?.id || ''}
               userId={user?.id || ''}
               onRefresh={handleRefresh}
+              onSelectGroup={setDrawerEvent}
             />
           ))}
 
@@ -302,6 +307,14 @@ export default function EventsPage() {
         allVenues={allVenues}
         existingDates={dates}
         onCreated={handleSessionCreated}
+      />
+
+      {/* Group detail drawer */}
+      <GroupDetailDrawer
+        event={drawerEvent}
+        venueName={drawerEvent?.venue_id ? allVenues.find(v => v.id === drawerEvent.venue_id)?.name : undefined}
+        date={selectedDate || undefined}
+        onClose={() => setDrawerEvent(null)}
       />
     </div>
   )
