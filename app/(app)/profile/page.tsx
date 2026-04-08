@@ -35,7 +35,6 @@ export default function ProfilePage() {
 
   // Password change
   const [showPasswordChange, setShowPasswordChange] = useState(false)
-  const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordLoading, setPasswordLoading] = useState(false)
@@ -139,25 +138,17 @@ export default function ProfilePage() {
   }
 
   const handleChangePassword = async () => {
-    if (!user || !profile?.email) return
+    if (!user) return
     if (newPassword.length < 6) { showError('La contraseña debe tener al menos 6 caracteres'); return }
     if (newPassword !== confirmPassword) { showError('Las contraseñas no coinciden'); return }
 
     setPasswordLoading(true)
     try {
-      // Verify current password by re-signing in
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: profile.email,
-        password: currentPassword,
-      })
-      if (signInError) { showError('Contraseña actual incorrecta'); setPasswordLoading(false); return }
-
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) { showError(error.message); setPasswordLoading(false); return }
 
       success('Contraseña actualizada')
       setShowPasswordChange(false)
-      setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
     } catch {
@@ -291,15 +282,8 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-1">
               <p className="text-sm font-medium text-white">Cambiar contraseña</p>
-              <button onClick={() => { setShowPasswordChange(false); setCurrentPassword(''); setNewPassword(''); setConfirmPassword('') }} className="text-xs text-white-muted hover:text-white transition-colors">Cancelar</button>
+              <button onClick={() => { setShowPasswordChange(false); setNewPassword(''); setConfirmPassword('') }} className="text-xs text-white-muted hover:text-white transition-colors">Cancelar</button>
             </div>
-            <input
-              type="password"
-              placeholder="Contraseña actual"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
-            />
             <input
               type="password"
               placeholder="Nueva contraseña"
@@ -316,7 +300,7 @@ export default function ProfilePage() {
             />
             <button
               onClick={handleChangePassword}
-              disabled={passwordLoading || !currentPassword || !newPassword || !confirmPassword}
+              disabled={passwordLoading || !newPassword || !confirmPassword}
               className="btn-primary w-full py-2.5 text-sm"
             >
               {passwordLoading ? 'Actualizando...' : 'Actualizar contraseña'}

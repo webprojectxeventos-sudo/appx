@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { CheckCircle2, Check } from 'lucide-react'
+import { CheckCircle2, Check, Mail } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function RegisterPage() {
@@ -18,6 +18,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [validatedEvent, setValidatedEvent] = useState<{ event_id: string; event_title: string } | null>(null)
   const [privacyAccepted, setPrivacyAccepted] = useState(false)
+  const [registered, setRegistered] = useState(false)
 
   const formatCode = (value: string): string => {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
@@ -78,7 +79,15 @@ export default function RegisterPage() {
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
       if (!authData.user) { setError('Error al crear la cuenta'); setLoading(false); return }
 
-      router.push('/home')
+      // Si hay sesión → email confirmation está OFF → entrar directo
+      if (authData.session) {
+        router.push('/home')
+        return
+      }
+
+      // Si no hay sesión → email confirmation está ON → mostrar pantalla de éxito
+      setRegistered(true)
+      setLoading(false)
     } catch {
       setError('Error inesperado. Intentalo de nuevo.')
       setLoading(false)
@@ -86,6 +95,26 @@ export default function RegisterPage() {
   }
 
   const inputClass = 'w-full px-4 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] text-white placeholder:text-white/25 text-sm focus:outline-none focus:border-primary/50 focus:bg-white/[0.05] transition-all'
+
+  // Pantalla de éxito tras registro (cuando email confirmation está ON)
+  if (registered) {
+    return (
+      <div className="space-y-6 text-center">
+        <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+          <Mail className="w-5 h-5 text-emerald-400" />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold text-white mb-2">Cuenta creada</h1>
+          <p className="text-sm text-white/40 leading-relaxed">
+            Hemos enviado un enlace de confirmacion a <span className="text-white/70">{email}</span>. Revisa tu bandeja de entrada para activar tu cuenta.
+          </p>
+        </div>
+        <Link href="/login" className="btn-primary inline-flex py-3 px-6 text-sm font-semibold">
+          Ir al login
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

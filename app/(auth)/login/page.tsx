@@ -5,6 +5,26 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
+const translateError = (msg: string): string => {
+  const map: Record<string, string> = {
+    'Invalid login credentials': 'Email o contraseña incorrectos',
+    'invalid login credentials': 'Email o contraseña incorrectos',
+    'Invalid email or password': 'Email o contraseña incorrectos',
+    'Email not confirmed': 'Confirma tu email antes de iniciar sesion',
+    'User not found': 'No existe una cuenta con ese email',
+    'Too many requests': 'Demasiados intentos. Espera un momento.',
+    'For security purposes, you can only request this after': 'Demasiados intentos. Espera un momento.',
+    'Signups not allowed for this instance': 'El registro no esta permitido',
+    'Password should be at least 6 characters': 'La contraseña debe tener al menos 6 caracteres',
+  }
+  // Check exact match first, then partial match
+  if (map[msg]) return map[msg]
+  for (const [key, value] of Object.entries(map)) {
+    if (msg.toLowerCase().includes(key.toLowerCase())) return value
+  }
+  return msg
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -20,7 +40,7 @@ export default function LoginPage() {
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
       if (signInError) {
-        setError(signInError.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos' : signInError.message)
+        setError(translateError(signInError.message))
         setLoading(false)
         return
       }

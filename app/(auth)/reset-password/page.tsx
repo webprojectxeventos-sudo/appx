@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { Check, ArrowLeft, Loader2 } from 'lucide-react'
+import { Check, ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -14,19 +14,30 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [ready, setReady] = useState(false)
+  const [expired, setExpired] = useState(false)
+  const readyRef = useRef(false)
 
   // Wait for Supabase to process the recovery token from the URL hash
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
+        readyRef.current = true
         setReady(true)
+        setExpired(false)
       }
     })
-    // Also check if already in a session (user clicked link and session was restored)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
-    return () => subscription.unsubscribe()
+
+    // Timeout: si no llega el evento en 4s, el enlace es inválido
+    const timeout = setTimeout(() => {
+      if (!readyRef.current) {
+        setExpired(true)
+      }
+    }, 4000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,17 +86,37 @@ export default function ResetPasswordPage() {
     )
   }
 
+  if (expired) {
+    return (
+      <div className="space-y-6 text-center">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold text-white mb-2">Enlace no valido</h1>
+          <p className="text-sm text-white/40 leading-relaxed">Este enlace ha expirado o no es valido. Solicita uno nuevo para restablecer tu contraseña.</p>
+        </div>
+        <Link href="/forgot-password" className="btn-primary inline-flex py-3 px-6 text-sm font-semibold">
+          Solicitar nuevo enlace
+        </Link>
+        <div>
+          <Link href="/login" className="inline-flex items-center gap-1.5 text-sm text-white/40 hover:text-white transition-colors">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Volver al login
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   if (!ready) {
     return (
       <div className="space-y-6 text-center">
         <Loader2 className="w-6 h-6 text-white/30 mx-auto animate-spin" />
         <div>
           <h1 className="text-lg font-semibold text-white mb-2">Verificando enlace</h1>
-          <p className="text-sm text-white/40 leading-relaxed">Si el enlace ha expirado o es invalido, solicita uno nuevo.</p>
+          <p className="text-sm text-white/40">Un momento...</p>
         </div>
-        <Link href="/forgot-password" className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-light transition-colors font-medium">
-          Solicitar nuevo enlace
-        </Link>
       </div>
     )
   }
