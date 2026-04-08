@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { UserPlus, CheckCircle2 } from 'lucide-react'
+import { UserPlus, CheckCircle2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function RegisterPage() {
@@ -17,6 +17,7 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [validatedEvent, setValidatedEvent] = useState<{ event_id: string; event_title: string } | null>(null)
+  const [privacyAccepted, setPrivacyAccepted] = useState(false)
 
   const formatCode = (value: string): string => {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
@@ -76,6 +77,26 @@ export default function RegisterPage() {
 
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
       if (!authData.user) { setError('Error al crear la cuenta'); setLoading(false); return }
+
+      // Generar ticket inmediatamente tras registro
+      const { data: ticketData } = await supabase.rpc('generate_ticket', {
+        p_user_id: authData.user.id,
+        p_event_id: recheck.event_id,
+      })
+
+      // Enviar email con la entrada (fire-and-forget)
+      if (ticketData) {
+        fetch('/api/send-ticket', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: email,
+            userName: fullName,
+            eventTitle: recheck.event_title,
+            qrCode: ticketData,
+          }),
+        }).catch(() => {})
+      }
 
       router.push('/home')
     } catch {
@@ -189,24 +210,46 @@ export default function RegisterPage() {
               />
             </div>
 
+            {/* Privacy checkbox */}
+            <label className="flex items-start gap-3 cursor-pointer">
+              <div className="relative flex-shrink-0 mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={privacyAccepted}
+                  onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                  className="sr-only"
+                  disabled={loading}
+                />
+                <div
+                  className={cn(
+                    'w-5 h-5 rounded-md border transition-all flex items-center justify-center',
+                    privacyAccepted
+                      ? 'bg-primary/20 border-primary/50'
+                      : 'bg-transparent border-black-border'
+                  )}
+                >
+                  {privacyAccepted && <Check className="w-3 h-3 text-primary" />}
+                </div>
+              </div>
+              <p className="text-[11px] text-white-muted/60 leading-relaxed">
+                He leido y acepto la{' '}
+                <Link href="/privacy" className="text-white-muted hover:text-white underline transition-colors" target="_blank">
+                  Politica de Privacidad
+                </Link>{' '}
+                y los{' '}
+                <Link href="/terms" className="text-white-muted hover:text-white underline transition-colors" target="_blank">
+                  Terminos de Servicio
+                </Link>
+              </p>
+            </label>
+
             <button
               type="submit"
-              disabled={loading}
-              className="btn-primary w-full py-3.5 text-base"
+              disabled={loading || !privacyAccepted}
+              className="btn-primary w-full py-3.5 text-base disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {loading ? 'Registrando...' : 'Registrarse'}
             </button>
-
-            <p className="text-[11px] text-white-muted/60 text-center leading-relaxed">
-              Al registrarte aceptas la{' '}
-              <Link href="/privacy" className="text-white-muted hover:text-white underline transition-colors">
-                Politica de Privacidad
-              </Link>{' '}
-              y los{' '}
-              <Link href="/terms" className="text-white-muted hover:text-white underline transition-colors">
-                Terminos de Servicio
-              </Link>
-            </p>
           </div>
         )}
 
