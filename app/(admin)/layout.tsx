@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { ArrowLeft, Calendar, MessageCircle, LayoutDashboard, Building2, AlertTriangle } from 'lucide-react'
-import { AuthProvider, useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/auth-context'
 import { AdminSelectionProvider } from '@/lib/admin-context'
 import { ToastProvider } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
@@ -16,12 +16,12 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   const { user, profile, loading, initialized, isSuperAdmin, isAdmin } = useAuth()
 
   useEffect(() => {
-    if (initialized && (!user || !isAdmin)) {
-      router.push('/home')
-    }
-  }, [user, isAdmin, initialized, router])
+    if (!initialized || loading) return
+    if (!user) { router.push('/login'); return }
+    if (!isAdmin) { router.push('/home') }
+  }, [user, isAdmin, initialized, loading, router])
 
-  if (!initialized) {
+  if (!initialized || loading || !user || !isAdmin) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
         <div className="text-center animate-fade-in">
@@ -35,8 +35,6 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
       </div>
     )
   }
-
-  if (!user || !isAdmin) return null
 
   const baseNavItems = [
     { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
@@ -127,12 +125,10 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <AuthProvider>
-      <AdminSelectionProvider>
-        <ToastProvider>
-          <AdminLayoutContent>{children}</AdminLayoutContent>
-        </ToastProvider>
-      </AdminSelectionProvider>
-    </AuthProvider>
+    <AdminSelectionProvider>
+      <ToastProvider>
+        <AdminLayoutContent>{children}</AdminLayoutContent>
+      </ToastProvider>
+    </AdminSelectionProvider>
   )
 }

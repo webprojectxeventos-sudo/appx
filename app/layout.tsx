@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { Providers } from "@/components/providers";
 import "./globals.css";
 
 const geist = Geist({
@@ -57,7 +58,7 @@ export default function RootLayout({
   return (
     <html lang="es" className={`h-full antialiased ${geist.variable}`} data-scroll-behavior="smooth">
       <body className="min-h-full flex flex-col bg-[#0a0a0a] text-white overscroll-none">
-        {children}
+        <Providers>{children}</Providers>
         <ServiceWorkerRegister />
       </body>
     </html>

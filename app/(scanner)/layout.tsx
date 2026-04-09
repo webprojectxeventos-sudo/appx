@@ -3,14 +3,14 @@
 import React, { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { AuthProvider, useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/auth-context'
 
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const { user, profile, loading, initialized, isStaff } = useAuth()
 
   useEffect(() => {
-    if (!initialized) return
+    if (!initialized || loading) return
     if (!user || !profile) {
       router.push('/login')
       return
@@ -18,9 +18,9 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
     if (!isStaff) {
       router.push('/home')
     }
-  }, [user, profile, initialized, isStaff, router])
+  }, [user, profile, initialized, loading, isStaff, router])
 
-  if (!initialized) {
+  if (!initialized || loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
         <div className="text-center animate-fade-in">
@@ -58,9 +58,5 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
 }
 
 export default function ScannerLayout({ children }: { children: ReactNode }) {
-  return (
-    <AuthProvider>
-      <ScannerLayoutContent>{children}</ScannerLayoutContent>
-    </AuthProvider>
-  )
+  return <ScannerLayoutContent>{children}</ScannerLayoutContent>
 }

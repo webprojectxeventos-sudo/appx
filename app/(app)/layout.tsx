@@ -17,7 +17,7 @@ import {
   Moon,
   Megaphone,
 } from 'lucide-react'
-import { AuthProvider, useAuth } from '@/lib/auth-context'
+import { useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
 import { ToastProvider } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase'
@@ -174,6 +174,13 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const [needsSurvey, setNeedsSurvey] = useState(false)
 
+  // Auth guard — redirect to login if not authenticated
+  useEffect(() => {
+    if (initialized && !loading && !user) {
+      router.replace('/login')
+    }
+  }, [initialized, loading, user, router])
+
   // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {
     if (!initialized || !user?.id || !event?.id || isStaff) return
@@ -215,8 +222,8 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     (p) => pathname === p || pathname.startsWith(p + '/')
   )
 
-  // Only show loading on first initialization
-  if (!initialized) {
+  // Show loading while auth initializes or user data loads
+  if (!initialized || loading || !user) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
         <div className="text-center animate-fade-in">
@@ -256,13 +263,11 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <ToastProvider>
-          <div className="flex flex-col min-h-screen bg-background text-foreground">
-            <AppLayoutContent>{children}</AppLayoutContent>
-          </div>
-        </ToastProvider>
-      </AuthProvider>
+      <ToastProvider>
+        <div className="flex flex-col min-h-screen bg-background text-foreground">
+          <AppLayoutContent>{children}</AppLayoutContent>
+        </div>
+      </ToastProvider>
     </ThemeProvider>
   )
 }

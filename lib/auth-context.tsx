@@ -178,9 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         initHandled = true
 
         if (!session) {
+          // No session — just mark as initialized. Each layout handles its own redirect.
           setLoading(false)
           setInitialized(true)
-          router.push('/login')
           return
         }
 
@@ -188,7 +188,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await loadUserData(session.user)
       } catch (err) {
         console.error('[Auth] Init error:', err)
-        if (!cancelled) router.push('/login')
       } finally {
         if (!cancelled) {
           setLoading(false)
