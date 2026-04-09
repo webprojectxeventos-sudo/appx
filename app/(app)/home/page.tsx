@@ -56,6 +56,7 @@ interface Announcement {
 
 export default function HomePage() {
   const { user, profile, event, venue, loading } = useAuth()
+  const heroImage = event?.cover_image_url || venue?.image_url || null
   const [countdown, setCountdown] = useState<Countdown>({ days: 0, hours: 0, minutes: 0, seconds: 0 })
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [hasDrinkOrder, setHasDrinkOrder] = useState(false)
@@ -210,10 +211,10 @@ export default function HomePage() {
     <div className="space-y-5 animate-fade-in">
       {/* Hero */}
       <div className="relative rounded-2xl overflow-hidden" style={{ height: '240px' }}>
-        {event.cover_image_url ? (
+        {heroImage ? (
           <>
-            <Image src={event.cover_image_url} alt={event.title} fill className="object-cover" priority />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/60 to-[#0a0a0a]/40" />
+            <img src={heroImage} alt={event.title} className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-[#0a0a0a]/20" />
           </>
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-primary/15 via-[#0a0a0a] to-gold/5" />
