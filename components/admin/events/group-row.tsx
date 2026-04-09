@@ -112,8 +112,8 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
         {event.event_code}
       </span>
 
-      {/* Actions (visible on hover) */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+      {/* Actions (always visible on mobile, hover on desktop) */}
+      <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
         <button
           onClick={() => { setEditing(true); setEditName(event.title) }}
           className="p-1 rounded text-white-muted hover:text-white hover:bg-white/5 transition-colors"

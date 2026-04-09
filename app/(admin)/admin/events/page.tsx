@@ -215,7 +215,7 @@ export default function EventsPage() {
 
       {/* Board: Venue columns */}
       {selectedDate && (
-        <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex flex-col md:flex-row gap-4 md:overflow-x-auto pb-2 scrollbar-hide">
           {displayVenues.map(venue => (
             <VenueCard
               key={venue.id}

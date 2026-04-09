@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter']
+const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter', 'super_admin']
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     if (!STAFF_ROLES.includes(targetUser.role)) {
       return NextResponse.json(
-        { error: 'Can only change passwords for staff users (admin, group_admin, scanner, promoter)' },
+        { error: 'Can only change passwords for staff users (admin, group_admin, scanner, promoter, super_admin)' },
         { status: 403 }
       )
     }

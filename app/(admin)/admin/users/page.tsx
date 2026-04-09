@@ -28,6 +28,8 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Plus,
+  X,
 } from 'lucide-react'
 import type { Database } from '@/lib/types'
 
@@ -78,6 +80,17 @@ export default function UsersPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+
+  // Create user modal
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createEmail, setCreateEmail] = useState('')
+  const [createName, setCreateName] = useState('')
+  const [createRole, setCreateRole] = useState<string>('scanner')
+  const [createPassword, setCreatePassword] = useState('')
+  const [createConfirmPassword, setCreateConfirmPassword] = useState('')
+  const [createGender, setCreateGender] = useState<string>('')
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+  const [creatingUser, setCreatingUser] = useState(false)
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
@@ -156,7 +169,7 @@ export default function UsersPage() {
     }
   }
 
-  const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter']
+  const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter', 'super_admin']
 
   const handleChangePassword = async (userId: string) => {
     if (!newPassword || newPassword !== confirmPassword) {
@@ -213,6 +226,66 @@ export default function UsersPage() {
       setSelectedUsers(new Set())
     } else {
       setSelectedUsers(new Set(users.map(u => u.id)))
+    }
+  }
+
+  const resetCreateModal = () => {
+    setShowCreateModal(false)
+    setCreateEmail('')
+    setCreateName('')
+    setCreateRole('scanner')
+    setCreatePassword('')
+    setCreateConfirmPassword('')
+    setCreateGender('')
+    setShowCreatePassword(false)
+  }
+
+  const handleCreateUser = async () => {
+    if (!createEmail || !createPassword || !createRole) {
+      showError('Email, contrasena y rol son obligatorios')
+      return
+    }
+    if (createPassword.length < 6) {
+      showError('La contrasena debe tener al menos 6 caracteres')
+      return
+    }
+    if (createPassword !== createConfirmPassword) {
+      showError('Las contrasenas no coinciden')
+      return
+    }
+    setCreatingUser(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        showError('Sesion expirada')
+        return
+      }
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          email: createEmail,
+          password: createPassword,
+          fullName: createName,
+          role: createRole,
+          gender: createGender || null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al crear usuario')
+        return
+      }
+      success(`Usuario ${createEmail} creado correctamente`)
+      resetCreateModal()
+      await fetchUsers()
+    } catch {
+      showError('Error de conexion')
+    } finally {
+      setCreatingUser(false)
     }
   }
 
@@ -289,9 +362,16 @@ export default function UsersPage() {
             {totalCount} usuarios en la organizacion
           </p>
         </div>
-        <button onClick={handleExportCSV} className="btn-ghost text-sm text-primary">
-          <Download className="w-4 h-4" /> CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCreateModal(true)} className="btn-primary text-sm">
+            <Plus className="w-4 h-4" />
+            <span className="hidden md:inline">Crear Usuario</span>
+            <span className="md:hidden">Crear</span>
+          </button>
+          <button onClick={handleExportCSV} className="btn-ghost text-sm text-primary">
+            <Download className="w-4 h-4" /> <span className="hidden md:inline">CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* Search + Filters */}
@@ -567,6 +647,162 @@ export default function UsersPage() {
         totalPages={totalPages}
         onPageChange={setPage}
       />
+
+      {/* Create User Modal */}
+      {showCreateModal && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm" onClick={resetCreateModal} />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-background border border-black-border rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-4 border-b border-black-border">
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-primary" />
+                  Crear Usuario
+                </h2>
+                <button onClick={resetCreateModal} className="p-2 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                {/* Email */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Email *</label>
+                  <input
+                    type="email"
+                    value={createEmail}
+                    onChange={e => setCreateEmail(e.target.value)}
+                    placeholder="usuario@ejemplo.com"
+                    className="w-full px-3 py-2.5 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-white-muted mt-1">Puedes usar cualquier email, no necesita ser real</p>
+                </div>
+
+                {/* Name */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Nombre completo</label>
+                  <input
+                    type="text"
+                    value={createName}
+                    onChange={e => setCreateName(e.target.value)}
+                    placeholder="Nombre del usuario"
+                    className="w-full px-3 py-2.5 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                  />
+                </div>
+
+                {/* Role */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Rol *</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ROLE_OPTIONS.filter(r => r.key !== 'all').map(r => {
+                      const conf = ROLE_CONFIG[r.key]
+                      const Icon = conf?.icon || User
+                      const isSelected = createRole === r.key
+                      return (
+                        <button
+                          key={r.key}
+                          onClick={() => setCreateRole(r.key)}
+                          className={cn(
+                            'flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-medium transition-all text-left',
+                            isSelected
+                              ? 'border-primary/50 bg-primary/10 text-white'
+                              : 'border-black-border text-white-muted hover:border-white/20 hover:text-white'
+                          )}
+                        >
+                          <Icon className={cn('w-4 h-4 shrink-0', isSelected ? conf?.color || 'text-primary' : '')} />
+                          {r.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Gender */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Genero</label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: '', label: 'Sin especificar' },
+                      { value: 'masculino', label: 'Masculino' },
+                      { value: 'femenino', label: 'Femenino' },
+                      { value: 'otro', label: 'Otro' },
+                    ].map(g => (
+                      <button
+                        key={g.value}
+                        onClick={() => setCreateGender(g.value)}
+                        className={cn(
+                          'flex-1 py-2 rounded-xl border text-xs font-medium transition-all',
+                          createGender === g.value
+                            ? 'border-primary/50 bg-primary/10 text-white'
+                            : 'border-black-border text-white-muted hover:border-white/20 hover:text-white'
+                        )}
+                      >
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Contrasena *</label>
+                  <div className="relative">
+                    <input
+                      type={showCreatePassword ? 'text' : 'password'}
+                      value={createPassword}
+                      onChange={e => setCreatePassword(e.target.value)}
+                      placeholder="Minimo 6 caracteres"
+                      className="w-full px-3 py-2.5 pr-10 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCreatePassword(!showCreatePassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white-muted hover:text-white"
+                    >
+                      {showCreatePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm Password */}
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Confirmar contrasena *</label>
+                  <input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    value={createConfirmPassword}
+                    onChange={e => setCreateConfirmPassword(e.target.value)}
+                    placeholder="Repite la contrasena"
+                    className="w-full px-3 py-2.5 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                    autoComplete="new-password"
+                  />
+                  {createPassword && createConfirmPassword && createPassword !== createConfirmPassword && (
+                    <p className="text-xs text-red-400 mt-1">Las contrasenas no coinciden</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center gap-3 p-4 border-t border-black-border">
+                <button
+                  onClick={handleCreateUser}
+                  disabled={creatingUser || !createEmail || !createPassword || !createRole || createPassword !== createConfirmPassword || createPassword.length < 6}
+                  className="btn-primary flex-1 text-sm py-2.5 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {creatingUser && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {creatingUser ? 'Creando...' : 'Crear Usuario'}
+                </button>
+                <button onClick={resetCreateModal} className="btn-ghost text-sm py-2.5 px-4">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

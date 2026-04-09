@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Info, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CodesTab } from './tabs/codes-tab'
@@ -33,7 +34,11 @@ interface GroupDetailDrawerProps {
 
 export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<TabId>('codes')
+  const [mounted, setMounted] = useState(false)
   const prevEventIdRef = useRef<string | undefined>(undefined)
+
+  // Portal mount
+  useEffect(() => { setMounted(true) }, [])
 
   // Reset tab when a different event is opened
   useEffect(() => {
@@ -59,24 +64,24 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
     }
   }, [event])
 
-  if (!event) return null
+  if (!event || !mounted) return null
 
   const dateFormatted = date
     ? new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
     : ''
 
-  return (
+  const drawerContent = (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Drawer - right side on desktop, full screen on mobile */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full md:w-[520px] flex flex-col bg-background border-l border-black-border shadow-2xl animate-drawer-in">
+      <div className="fixed inset-y-0 right-0 z-[70] w-full md:w-[520px] flex flex-col bg-background border-l border-black-border shadow-2xl animate-drawer-in">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-black-border shrink-0">
           <div className="min-w-0">
             <h2 className="text-base font-bold text-white truncate">{event.group_name || event.title}</h2>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-[10px] font-mono text-white-muted bg-white/5 px-1.5 py-0.5 rounded">{event.event_code}</span>
               {venueName && <span className="text-[11px] text-white-muted">{venueName}</span>}
               {dateFormatted && <span className="text-[11px] text-white-muted">{dateFormatted}</span>}
@@ -111,7 +116,7 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto p-4">
           {activeTab === 'codes' && <CodesTab eventId={event.id} />}
-          {activeTab === 'polls' && <PollsTab eventId={event.id} eventType={event.event_type} eventTitle={event.title} />}
+          {activeTab === 'polls' && <PollsTab eventId={event.id} eventType={event.event_type} eventTitle={event.title} venueId={event.venue_id || undefined} date={date} />}
           {activeTab === 'surveys' && <SurveysTab eventId={event.id} />}
           {activeTab === 'playlist' && <PlaylistTab eventId={event.id} />}
           {activeTab === 'schedule' && <ScheduleTab eventId={event.id} />}
@@ -126,4 +131,7 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
       </div>
     </>
   )
+
+  // Portal to body so drawer escapes admin layout stacking context
+  return createPortal(drawerContent, document.body)
 }

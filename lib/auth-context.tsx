@@ -150,7 +150,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    let initHandled = false // Prevents onAuthStateChange from racing with init
 
     const init = async () => {
       try {
@@ -158,7 +157,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession()
 
         if (cancelled) return
-        initHandled = true
 
         if (!session) {
           // No session — just mark as initialized. Each layout handles its own redirect.
@@ -190,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (authEvent, session) => {
+      (authEvent, session) => {
         if (cancelled) return
 
         // Skip INITIAL_SESSION — init() handles the first load.
@@ -208,27 +206,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isLoadingRef.current = false
           setLoading(false)
           setInitialized(true)
-          // Don't router.push('/login') here — layouts handle their own
-          // auth redirects. Pushing here races with login page navigation
-          // when switching users (signInWithPassword triggers SIGNED_OUT
-          // for the old session before SIGNED_IN for the new one).
           return
         }
 
         // SIGNED_IN from a different user (e.g. login after being on /login)
+        // IMPORTANT: Do NOT await async work here — this callback runs inside
+        // Supabase's navigator lock. Awaiting Supabase queries here causes a
+        // deadlock because those queries also need the lock (to get the token).
+        // Instead, set state and schedule loading outside the lock via setTimeout.
         if (session.user.id !== loadedUserId.current) {
-          // If init() already handled this same session, skip
-          if (initHandled && loadedUserId.current === session.user.id) return
-          // Reset refs to ensure clean load (previous user's state may linger)
           loadedUserId.current = null
           isLoadingRef.current = false
           setUser(session.user)
           setLoading(true)
-          await loadUserData(session.user)
-          if (!cancelled) {
-            setLoading(false)
-            setInitialized(true)
-          }
+          // Schedule data loading outside the auth lock
+          setTimeout(async () => {
+            if (cancelled) return
+            await loadUserData(session.user)
+            if (!cancelled) {
+              setLoading(false)
+              setInitialized(true)
+            }
+          }, 0)
         }
       }
     )

@@ -33,7 +33,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
 
   return (
     <>
-      <div className="card flex flex-col min-w-[280px] max-w-[360px] w-full overflow-hidden">
+      <div className="card flex flex-col w-full md:min-w-[280px] md:max-w-[360px] overflow-hidden">
         {/* Venue image */}
         {venue.image_url && (
           <div className="relative h-24 bg-black-card shrink-0">

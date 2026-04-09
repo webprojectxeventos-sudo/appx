@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Pagination } from '@/components/admin/pagination'
-import { Copy, Download, Plus, Users, Ticket, Ban, CheckCircle2, Search, Trash2 } from 'lucide-react'
+import { Copy, Download, Plus, Users, Ticket, Ban, CheckCircle2, Search, Trash2, CheckSquare, Square, MinusSquare } from 'lucide-react'
 import { useToast } from '@/components/ui/toast'
 import type { Database } from '@/lib/types'
 
@@ -25,6 +25,10 @@ export function CodesTab({ eventId }: CodesTabProps) {
   const [filter, setFilter] = useState<'all' | 'available' | 'used' | 'inactive'>('all')
   const [copied, setCopied] = useState(false)
   const [codePage, setCodePage] = useState(1)
+
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectMode, setSelectMode] = useState(false)
 
   const fetchCodes = useCallback(async () => {
     try {
@@ -54,6 +58,11 @@ export function CodesTab({ eventId }: CodesTabProps) {
   }, [eventId])
 
   useEffect(() => { fetchCodes() }, [fetchCodes])
+
+  // Reset selection when filter/search changes
+  useEffect(() => {
+    setSelected(new Set())
+  }, [filter, search])
 
   const handleGenerate = async () => {
     if (quantity < 1) return
@@ -99,8 +108,41 @@ export function CodesTab({ eventId }: CodesTabProps) {
         .is('used_by', null)
       if (error) throw error
       await fetchCodes()
+      setSelected(new Set())
     } catch (err) {
       console.error('Error deleting codes:', err)
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selected.size === 0) return
+    // Only allow deleting unused codes
+    const deletable = [...selected].filter(id => {
+      const code = codes.find(c => c.id === id)
+      return code && !code.used_by
+    })
+    if (deletable.length === 0) {
+      showError('Solo se pueden eliminar codigos no usados')
+      return
+    }
+    const usedCount = selected.size - deletable.length
+    const msg = usedCount > 0
+      ? `Eliminar ${deletable.length} codigos? (${usedCount} usados se omitiran)`
+      : `Eliminar ${deletable.length} codigos seleccionados?`
+    if (!confirm(msg)) return
+    try {
+      const { error } = await supabase
+        .from('access_codes')
+        .delete()
+        .in('id', deletable)
+      if (error) throw error
+      success(`${deletable.length} codigos eliminados`)
+      setSelected(new Set())
+      setSelectMode(false)
+      await fetchCodes()
+    } catch (err) {
+      console.error('Error deleting selected:', err)
+      showError('Error al eliminar codigos')
     }
   }
 
@@ -138,6 +180,31 @@ export function CodesTab({ eventId }: CodesTabProps) {
     URL.revokeObjectURL(url)
   }
 
+  // Toggle single code selection
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Select/deselect all visible (paginated) codes
+  const toggleSelectAllVisible = () => {
+    const visibleIds = paginatedCodes.map(c => c.id)
+    const allSelected = visibleIds.every(id => selected.has(id))
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allSelected) {
+        visibleIds.forEach(id => next.delete(id))
+      } else {
+        visibleIds.forEach(id => next.add(id))
+      }
+      return next
+    })
+  }
+
   const stats = {
     total: codes.length,
     available: codes.filter(c => !c.used_by && c.is_active).length,
@@ -145,7 +212,7 @@ export function CodesTab({ eventId }: CodesTabProps) {
     inactive: codes.filter(c => !c.is_active && !c.used_by).length,
   }
 
-  const filteredCodes = codes.filter(c => {
+  const filteredCodes = useMemo(() => codes.filter(c => {
     const matchesSearch = search === '' ||
       c.code.toLowerCase().includes(search.toLowerCase().replace('-', '')) ||
       (c.label && c.label.toLowerCase().includes(search.toLowerCase())) ||
@@ -157,11 +224,15 @@ export function CodesTab({ eventId }: CodesTabProps) {
       (filter === 'inactive' && !c.is_active)
 
     return matchesSearch && matchesFilter
-  })
+  }), [codes, search, filter, attendeeNames])
 
   const CODES_PER_PAGE = 50
   const totalCodePages = Math.ceil(filteredCodes.length / CODES_PER_PAGE)
   const paginatedCodes = filteredCodes.slice((codePage - 1) * CODES_PER_PAGE, codePage * CODES_PER_PAGE)
+
+  // Check if all visible are selected
+  const allVisibleSelected = paginatedCodes.length > 0 && paginatedCodes.every(c => selected.has(c.id))
+  const someVisibleSelected = paginatedCodes.some(c => selected.has(c.id))
 
   return (
     <div className="space-y-4">
@@ -228,17 +299,46 @@ export function CodesTab({ eventId }: CodesTabProps) {
               <option value="inactive">Off</option>
             </select>
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 flex-wrap">
             <button onClick={handleCopyAll} className={cn('btn-ghost text-xs', copied && 'text-primary')}>
               <Copy className="w-3 h-3" /> {copied ? 'Copiados!' : 'Copiar'}
             </button>
             <button onClick={handleExportCSV} className="btn-ghost text-xs text-primary">
               <Download className="w-3 h-3" /> CSV
             </button>
-            <button onClick={handleDeleteUnused} className="btn-ghost text-xs text-red-400">
-              <Trash2 className="w-3 h-3" />
+            <button
+              onClick={() => { setSelectMode(!selectMode); if (selectMode) setSelected(new Set()) }}
+              className={cn('btn-ghost text-xs', selectMode && 'text-primary bg-primary/10')}
+            >
+              <CheckSquare className="w-3 h-3" /> {selectMode ? 'Cancelar' : 'Seleccionar'}
             </button>
+            {!selectMode && (
+              <button onClick={handleDeleteUnused} className="btn-ghost text-xs text-red-400">
+                <Trash2 className="w-3 h-3" /> Borrar libres
+              </button>
+            )}
           </div>
+
+          {/* Bulk selection bar */}
+          {selectMode && (
+            <div className="flex items-center gap-2 py-2 px-3 rounded-xl bg-primary/5 border border-primary/20">
+              <button onClick={toggleSelectAllVisible} className="p-0.5 text-primary">
+                {allVisibleSelected ? <CheckSquare className="w-4 h-4" /> : someVisibleSelected ? <MinusSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+              </button>
+              <span className="text-xs text-white flex-1">
+                {selected.size > 0 ? <><span className="text-primary font-bold">{selected.size}</span> seleccionados</> : 'Selecciona codigos'}
+              </span>
+              {selected.size > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Eliminar ({selected.size})
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -255,12 +355,30 @@ export function CodesTab({ eventId }: CodesTabProps) {
           paginatedCodes.map(code => {
             const isUsed = !!code.used_by
             const isInactive = !code.is_active
+            const isSelected = selected.has(code.id)
             return (
-              <div key={code.id} className={cn(
-                'flex items-center gap-3 py-2 px-3 rounded-lg',
-                isUsed && 'bg-blue-500/[0.03]',
-                isInactive && 'opacity-50'
-              )}>
+              <div
+                key={code.id}
+                onClick={selectMode ? () => toggleSelect(code.id) : undefined}
+                className={cn(
+                  'flex items-center gap-3 py-2 px-3 rounded-lg',
+                  isUsed && 'bg-blue-500/[0.03]',
+                  isInactive && 'opacity-50',
+                  selectMode && 'cursor-pointer',
+                  isSelected && 'bg-primary/10 border border-primary/20',
+                )}
+              >
+                {selectMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(code.id) }}
+                    className="shrink-0"
+                  >
+                    {isSelected
+                      ? <CheckSquare className="w-4 h-4 text-primary" />
+                      : <Square className="w-4 h-4 text-white-muted" />
+                    }
+                  </button>
+                )}
                 <span className={cn(
                   'font-mono text-sm font-bold tracking-wider shrink-0',
                   isUsed ? 'text-blue-400' : isInactive ? 'text-red-400' : 'text-primary'
@@ -274,7 +392,7 @@ export function CodesTab({ eventId }: CodesTabProps) {
                     <p className="text-[11px] text-white-muted">{code.label || (isInactive ? 'Desactivado' : 'Disponible')}</p>
                   )}
                 </div>
-                {!isUsed && (
+                {!selectMode && !isUsed && (
                   <button onClick={() => handleToggleActive(code)} className="p-1 rounded hover:bg-white/5 shrink-0">
                     {code.is_active ? <Ban className="w-3 h-3 text-red-400" /> : <CheckCircle2 className="w-3 h-3 text-green-400" />}
                   </button>
