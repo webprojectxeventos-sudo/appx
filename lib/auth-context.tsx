@@ -165,9 +165,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
 
-    // Single entry point: onAuthStateChange fires INITIAL_SESSION immediately,
-    // then SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED as needed.
-    // No separate init() — eliminates redundant getSession() + double load race.
+    const init = async () => {
+      try {
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          3000,
+          'getSession'
+        )
+
+        if (cancelled) return
+
+        if (!session) {
+          setUser(null)
+          setProfile(null)
+          setEvent(null)
+          setVenue(null)
+          setEvents([])
+          setOrganization(null)
+          setLoading(false)
+          setInitialized(true)
+          router.push('/login')
+          return
+        }
+
+        setUser(session.user)
+        await loadUserData(session.user)
+      } catch (err) {
+        console.error('[Auth] Init error:', err)
+        if (!cancelled) {
+          router.push('/login')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setInitialized(true)
+        }
+      }
+    }
+
+    init()
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (authEvent, session) => {
         if (cancelled) return
@@ -181,13 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOrganization(null)
           loadedUserId.current = null
           setLoading(false)
-          setInitialized(true)
           router.push('/login')
-          return
-        }
-
-        // Skip TOKEN_REFRESHED if user data already loaded
-        if (authEvent === 'TOKEN_REFRESHED' && loadedUserId.current === session.user.id) {
           return
         }
 
@@ -195,16 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(session.user)
           setLoading(true)
           await loadUserData(session.user)
-          if (!cancelled) {
-            setLoading(false)
-            setInitialized(true)
-          }
-        } else {
-          // Already loaded — just mark ready
-          if (!cancelled) {
-            setLoading(false)
-            setInitialized(true)
-          }
+          if (!cancelled) setLoading(false)
         }
       }
     )
