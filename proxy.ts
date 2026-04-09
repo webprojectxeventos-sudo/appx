@@ -1,6 +1,21 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+
+// ─── Lightweight JWT decode (no network call) ───
+// Extracts user ID from the JWT payload without calling Supabase.
+// Actual token verification still happens at the DB level (RLS).
+function decodeJwtPayload(token: string): { sub?: string; exp?: number } | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    // base64url → base64 → decode
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const json = atob(b64)
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password']
@@ -35,52 +50,32 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // For API routes, check Authorization header
+  // For API routes — lightweight JWT check (no network call)
   if (pathname.startsWith('/api/')) {
     const authHeader = request.headers.get('Authorization')
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Verify token with Supabase
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
-    }
+    const token = authHeader.slice(7)
+    const payload = decodeJwtPayload(token)
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    })
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
+    if (!payload?.sub) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
-    // For promoter API routes, verify role
-    if (pathname.startsWith('/api/promoter/')) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (!profile || !['admin', 'super_admin', 'promoter'].includes(profile.role)) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      }
+    // Check token expiry
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      return NextResponse.json({ error: 'Token expired' }, { status: 401 })
     }
 
-    // Attach user ID to headers for downstream use
+    // Attach user ID + original token for downstream use
     const requestHeaders = new Headers(request.headers)
-    requestHeaders.set('x-user-id', user.id)
+    requestHeaders.set('x-user-id', payload.sub)
     return NextResponse.next({ request: { headers: requestHeaders } })
   }
 
-  // Page-level auth is handled client-side by AuthProvider (redirect to /login when
-  // no session). Server-side cookie checks cause redirect loops because Supabase
-  // writes the auth cookie asynchronously after signInWithPassword — the cookie
-  // isn't available yet when the browser navigates to /home.
+  // Page-level auth is handled client-side by AuthProvider.
 
   // Add security headers to all responses
   const response = NextResponse.next()

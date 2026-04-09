@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 1. Load profile first (needed to know event_id + organization_id)
       const profileResult = await withTimeout(
         supabase.from('users').select('*').eq('id', authUser.id).single().then(r => r) as Promise<{ data: UserProfile | null; error: { message: string } | null }>,
-        5000,
+        3000,
         'loadProfile'
       )
 
@@ -128,8 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })()
       promises.push(membershipsPromise)
 
-      // Wait for ALL parallel queries (timeout 5s total)
-      await withTimeout(Promise.all(promises), 5000, 'loadSecondaryData')
+      // Wait for ALL parallel queries (timeout 3s total)
+      await withTimeout(Promise.all(promises), 3000, 'loadSecondaryData')
 
       loadedUserId.current = authUser.id
 
@@ -165,46 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
 
-    const init = async () => {
-      try {
-        const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(),
-          5000,
-          'getSession'
-        )
-
-        if (cancelled) return
-
-        if (!session) {
-          setUser(null)
-          setProfile(null)
-          setEvent(null)
-          setVenue(null)
-          setEvents([])
-          setOrganization(null)
-          setLoading(false)
-          setInitialized(true)
-          router.push('/login')
-          return
-        }
-
-        setUser(session.user)
-        await loadUserData(session.user)
-      } catch (err) {
-        console.error('[Auth] Init error:', err)
-        if (!cancelled) {
-          router.push('/login')
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-          setInitialized(true)
-        }
-      }
-    }
-
-    init()
-
+    // Single entry point: onAuthStateChange fires INITIAL_SESSION immediately,
+    // then SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED as needed.
+    // No separate init() — eliminates redundant getSession() + double load race.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (authEvent, session) => {
         if (cancelled) return
@@ -218,7 +181,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOrganization(null)
           loadedUserId.current = null
           setLoading(false)
+          setInitialized(true)
           router.push('/login')
+          return
+        }
+
+        // Skip TOKEN_REFRESHED if user data already loaded
+        if (authEvent === 'TOKEN_REFRESHED' && loadedUserId.current === session.user.id) {
           return
         }
 
@@ -226,7 +195,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(session.user)
           setLoading(true)
           await loadUserData(session.user)
-          if (!cancelled) setLoading(false)
+          if (!cancelled) {
+            setLoading(false)
+            setInitialized(true)
+          }
+        } else {
+          // Already loaded — just mark ready
+          if (!cancelled) {
+            setLoading(false)
+            setInitialized(true)
+          }
         }
       }
     )
