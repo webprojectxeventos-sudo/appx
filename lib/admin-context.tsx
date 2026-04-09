@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import type { Database } from '@/lib/types'
@@ -94,20 +94,29 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
     refreshData(true)
   }, [refreshData])
 
-  // Derived: unique dates
-  const dates = [...new Set(allOrgEvents.map(e => formatDate(e.date)))].sort().reverse()
+  // Derived: unique dates (memoized to avoid new arrays every render)
+  const dates = useMemo(
+    () => [...new Set(allOrgEvents.map(e => formatDate(e.date)))].sort().reverse(),
+    [allOrgEvents]
+  )
 
   // Derived: events for selected date
-  const eventsForDate = allOrgEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate)
+  const eventsForDate = useMemo(
+    () => allOrgEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate),
+    [allOrgEvents, selectedDate]
+  )
 
   // Derived: venues for selected date (only venues that have events that day)
-  const venueIdsForDate = new Set(eventsForDate.map(e => e.venue_id).filter(Boolean))
-  const venuesForDate = allVenues.filter(v => venueIdsForDate.has(v.id))
+  const venuesForDate = useMemo(() => {
+    const venueIdsForDate = new Set(eventsForDate.map(e => e.venue_id).filter(Boolean))
+    return allVenues.filter(v => venueIdsForDate.has(v.id))
+  }, [eventsForDate, allVenues])
 
   // Derived: events for selected venue
-  const eventsForVenue = selectedVenueId
-    ? eventsForDate.filter(e => e.venue_id === selectedVenueId)
-    : eventsForDate
+  const eventsForVenue = useMemo(
+    () => selectedVenueId ? eventsForDate.filter(e => e.venue_id === selectedVenueId) : eventsForDate,
+    [eventsForDate, selectedVenueId]
+  )
 
   // Setters with sessionStorage persistence + cascade
   const setDate = useCallback((date: string | null) => {
@@ -145,7 +154,7 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem('admin_venue', venuesForDate[0].id)
       }
     }
-  }, [selectedDate, venuesForDate.length])
+  }, [selectedDate, venuesForDate, selectedVenueId])
 
   // Auto-select first event when venue changes
   useEffect(() => {
@@ -159,24 +168,32 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem('admin_event', eventsForVenue[0].id)
       }
     }
-  }, [selectedVenueId, eventsForVenue.length])
+  }, [selectedVenueId, eventsForVenue, selectedEventId])
+
+  const refresh = useCallback(() => refreshData(false), [refreshData])
+
+  const contextValue = useMemo<AdminSelectionContextType>(() => ({
+    selectedDate,
+    selectedVenueId,
+    selectedEventId,
+    dates,
+    venues: venuesForDate,
+    events: eventsForVenue,
+    allEvents: eventsForDate,
+    allVenues,
+    loading,
+    setDate,
+    setVenue,
+    setEvent,
+    refresh,
+  }), [
+    selectedDate, selectedVenueId, selectedEventId,
+    dates, venuesForDate, eventsForVenue, eventsForDate, allVenues,
+    loading, setDate, setVenue, setEvent, refresh,
+  ])
 
   return (
-    <AdminSelectionContext.Provider value={{
-      selectedDate,
-      selectedVenueId,
-      selectedEventId,
-      dates,
-      venues: venuesForDate,
-      events: eventsForVenue,
-      allEvents: eventsForDate,
-      allVenues,
-      loading,
-      setDate,
-      setVenue,
-      setEvent,
-      refresh: () => refreshData(false),
-    }}>
+    <AdminSelectionContext.Provider value={contextValue}>
       {children}
     </AdminSelectionContext.Provider>
   )

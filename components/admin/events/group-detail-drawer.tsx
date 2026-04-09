@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Info, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CodesTab } from './tabs/codes-tab'
@@ -32,15 +32,16 @@ interface GroupDetailDrawerProps {
 }
 
 export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDetailDrawerProps) {
-  // Reset tab when event changes using key in parent, but also track locally
   const [activeTab, setActiveTab] = useState<TabId>('codes')
-  const [prevEventId, setPrevEventId] = useState<string | null>(null)
+  const prevEventIdRef = useRef<string | undefined>(undefined)
 
-  // Reset tab when a different event is opened (derived state pattern)
-  if (event?.id !== prevEventId) {
-    setPrevEventId(event?.id || null)
-    if (activeTab !== 'codes') setActiveTab('codes')
-  }
+  // Reset tab when a different event is opened
+  useEffect(() => {
+    if (event?.id !== prevEventIdRef.current) {
+      prevEventIdRef.current = event?.id
+      setActiveTab('codes')
+    }
+  }, [event?.id])
 
   // Close on Escape
   useEffect(() => {

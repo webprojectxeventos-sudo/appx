@@ -73,7 +73,7 @@ export default function EventsPage() {
   const handleRefresh = useCallback(async () => {
     await fetchData()
     adminCtx.refresh()
-  }, [fetchData, adminCtx])
+  }, [fetchData, adminCtx.refresh])
 
   // Derived: unique dates sorted chronologically
   const dates = useMemo(() => {
