@@ -39,15 +39,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`[Auth] Timeout: ${label} took >${ms}ms`)), ms)
-    ),
-  ])
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -67,26 +58,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoadingRef.current = true
 
     try {
-      // 1. Load profile first (needed to know event_id + organization_id)
-      const profileResult = await withTimeout(
-        supabase.from('users').select('*').eq('id', authUser.id).single().then(r => r) as Promise<{ data: UserProfile | null; error: { message: string } | null }>,
-        3000,
-        'loadProfile'
-      )
+      // 1. Load profile — NO timeout (Supabase cold start can take 10-15s on free tier)
+      const { data: profileData, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single()
 
-      if (profileResult.error || !profileResult.data) {
-        console.error('[Auth] Could not load profile:', profileResult.error?.message)
+      if (profileError || !profileData) {
+        console.error('[Auth] Could not load profile:', profileError?.message)
         return false
       }
 
-      const profileData = profileResult.data
       setProfile(profileData)
 
-      // 2. Run ALL secondary queries in parallel
+      // 2. Run ALL secondary queries in parallel — NO timeout, non-fatal
       const promises: Promise<void>[] = []
 
-      // 2a. Load active event + venue (chained but independent of org/memberships)
-      const eventVenuePromise = (async () => {
+      promises.push((async () => {
         if (!profileData.event_id) { setEvent(null); setVenue(null); return }
         const { data: eventData } = await supabase.from('events').select('*').eq('id', profileData.event_id).single()
         setEvent(eventData || null)
@@ -96,19 +85,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setVenue(null)
         }
-      })()
-      promises.push(eventVenuePromise)
+      })())
 
-      // 2b. Load organization
-      const orgPromise = (async () => {
+      promises.push((async () => {
         if (!profileData.organization_id) { setOrganization(null); return }
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profileData.organization_id).single()
         setOrganization(orgData || null)
-      })()
-      promises.push(orgPromise)
+      })())
 
-      // 2c. Load all event memberships
-      const membershipsPromise = (async () => {
+      promises.push((async () => {
         const { data: memberships } = await supabase
           .from('user_events')
           .select('event_id, role, is_active')
@@ -125,15 +110,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setEvents([])
         }
-      })()
-      promises.push(membershipsPromise)
+      })())
 
-      // Wait for ALL parallel queries (timeout 3s total)
-      await withTimeout(Promise.all(promises), 3000, 'loadSecondaryData')
+      // Secondary data failure is non-fatal — app works without event/venue/org
+      try { await Promise.all(promises) } catch (err) {
+        console.warn('[Auth] Secondary data partially failed (non-fatal):', err)
+      }
 
       loadedUserId.current = authUser.id
 
-      // Auto-subscribe to push notifications (fire-and-forget, no await)
+      // Auto-subscribe to push notifications (fire-and-forget)
       if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) {
         import('@/lib/notifications').then(({ subscribeToPush }) => {
           subscribeToPush(authUser.id).catch(() => {})
@@ -168,11 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(),
-          3000,
-          'getSession'
-        )
+        // No timeout — Supabase cold start can take 10-15s on free tier
+        const { data: { session } } = await supabase.auth.getSession()
 
         if (cancelled) return
         initHandled = true
@@ -185,7 +168,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setUser(session.user)
-        await loadUserData(session.user)
+        const success = await loadUserData(session.user)
+
+        // Retry once on failure (covers cold start where first query wakes the DB)
+        if (!success && !cancelled) {
+          console.log('[Auth] Retrying loadUserData after initial failure...')
+          isLoadingRef.current = false // Reset guard so retry can proceed
+          loadedUserId.current = null
+          await loadUserData(session.user)
+        }
       } catch (err) {
         console.error('[Auth] Init error:', err)
       } finally {
