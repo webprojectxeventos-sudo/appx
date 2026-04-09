@@ -205,9 +205,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setEvents([])
           setOrganization(null)
           loadedUserId.current = null
+          isLoadingRef.current = false
           setLoading(false)
           setInitialized(true)
-          router.push('/login')
+          // Don't router.push('/login') here — layouts handle their own
+          // auth redirects. Pushing here races with login page navigation
+          // when switching users (signInWithPassword triggers SIGNED_OUT
+          // for the old session before SIGNED_IN for the new one).
           return
         }
 
@@ -215,6 +219,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session.user.id !== loadedUserId.current) {
           // If init() already handled this same session, skip
           if (initHandled && loadedUserId.current === session.user.id) return
+          // Reset refs to ensure clean load (previous user's state may linger)
+          loadedUserId.current = null
+          isLoadingRef.current = false
           setUser(session.user)
           setLoading(true)
           await loadUserData(session.user)
