@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, memo } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import {
@@ -39,13 +39,6 @@ const SOCIAL_LINKS = {
   tiktok: 'https://tiktok.com/@tugraduacionmadrid',
 }
 
-interface Countdown {
-  days: number
-  hours: number
-  minutes: number
-  seconds: number
-}
-
 interface Announcement {
   id: string
   content: string
@@ -53,6 +46,73 @@ interface Announcement {
   user_name: string
   is_general?: boolean
 }
+
+// Zero-re-render countdown: uses refs + direct DOM updates instead of setState
+const CountdownTimer = memo(function CountdownTimer({ targetDate }: { targetDate: string }) {
+  const [passed, setPassed] = useState(() => new Date(targetDate).getTime() <= Date.now())
+  const daysRef = useRef<HTMLDivElement>(null)
+  const hoursRef = useRef<HTMLDivElement>(null)
+  const minsRef = useRef<HTMLDivElement>(null)
+  const secsRef = useRef<HTMLDivElement>(null)
+  const labelRef = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    const target = new Date(targetDate).getTime()
+    if (target <= Date.now()) { setPassed(true); return }
+
+    let intervalId: ReturnType<typeof setInterval>
+    const update = () => {
+      const diff = target - Date.now()
+      if (diff <= 0) {
+        setPassed(true)
+        clearInterval(intervalId)
+        return
+      }
+      const d = Math.floor(diff / 86400000)
+      const h = Math.floor((diff / 3600000) % 24)
+      const m = Math.floor((diff / 60000) % 60)
+      const s = Math.floor((diff / 1000) % 60)
+      if (daysRef.current) daysRef.current.textContent = String(d).padStart(2, '0')
+      if (hoursRef.current) hoursRef.current.textContent = String(h).padStart(2, '0')
+      if (minsRef.current) minsRef.current.textContent = String(m).padStart(2, '0')
+      if (secsRef.current) secsRef.current.textContent = String(s).padStart(2, '0')
+      if (labelRef.current) labelRef.current.textContent = `Faltan ${d} dias`
+    }
+    update()
+    intervalId = setInterval(update, 1000)
+    return () => clearInterval(intervalId)
+  }, [targetDate])
+
+  if (passed) {
+    return (
+      <div className="card-glow p-5 text-center animate-glow-pulse">
+        <Sparkles className="w-6 h-6 mx-auto mb-2 text-gold" />
+        <p className="font-bold text-white text-lg">La fiesta ya ha empezado!</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card-glow p-4 animate-glow-pulse">
+      <p ref={labelRef} className="text-accent-gradient text-sm font-semibold text-center mb-3">
+        Cargando...
+      </p>
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { ref: daysRef, label: 'Dias' },
+          { ref: hoursRef, label: 'Horas' },
+          { ref: minsRef, label: 'Min' },
+          { ref: secsRef, label: 'Seg' },
+        ].map((item, i) => (
+          <div key={i} className="bg-white/[0.04] rounded-xl p-3 text-center">
+            <div ref={item.ref} className="text-3xl font-bold tabular-nums text-gradient-primary">--</div>
+            <div className="text-[9px] uppercase tracking-[0.2em] text-gold mt-1 font-medium">{item.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})
 
 export default function HomePage() {
   const { user, profile, event, venue, loading } = useAuth()
@@ -62,36 +122,11 @@ export default function HomePage() {
 
   // Reset error state when the image URL changes (e.g. switching events)
   useEffect(() => { setHeroFailed(false) }, [heroImageUrl])
-  const [countdown, setCountdown] = useState<Countdown>({ days: 0, hours: 0, minutes: 0, seconds: 0 })
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [hasDrinkOrder, setHasDrinkOrder] = useState(false)
   const [qrCode, setQrCode] = useState<string | null>(null)
-  const [eventPassed, setEventPassed] = useState(false)
   const [schedule, setSchedule] = useState<{ id: string; title: string; start_time: string; end_time: string | null; icon: string }[]>([])
 
-
-  // Countdown
-  useEffect(() => {
-    if (!event?.date) return
-    const updateCountdown = () => {
-      const diff = new Date(event.date).getTime() - Date.now()
-      if (diff > 0) {
-        setEventPassed(false)
-        setCountdown({
-          days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-          hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-          minutes: Math.floor((diff / (1000 * 60)) % 60),
-          seconds: Math.floor((diff / 1000) % 60),
-        })
-      } else {
-        setEventPassed(true)
-        setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 })
-      }
-    }
-    updateCountdown()
-    const interval = setInterval(updateCountdown, 1000)
-    return () => clearInterval(interval)
-  }, [event?.date])
 
   // Fetch announcements (event-scoped + venue general)
   useEffect(() => {
@@ -158,21 +193,19 @@ export default function HomePage() {
     return () => { cancelled = true; supabase.removeChannel(channel) }
   }, [event?.id, venue?.id])
 
-  // Check drink order, ticket, and schedule
+  // Check drink order, ticket, and schedule — single round-trip with Promise.all
   useEffect(() => {
     if (!event?.id || !user?.id) return
     let cancelled = false
-    supabase.from('drink_orders').select('id').eq('event_id', event.id).eq('user_id', user.id).single().then(({ data }) => {
+    Promise.all([
+      supabase.from('drink_orders').select('id').eq('event_id', event.id).eq('user_id', user.id).single(),
+      supabase.from('tickets').select('qr_code').eq('event_id', event.id).eq('user_id', user.id).single(),
+      supabase.from('event_schedule').select('id, title, start_time, end_time, icon').eq('event_id', event.id).order('start_time', { ascending: true }),
+    ]).then(([drinkRes, ticketRes, scheduleRes]) => {
       if (cancelled) return
-      setHasDrinkOrder(!!data)
-    })
-    supabase.from('tickets').select('qr_code').eq('event_id', event.id).eq('user_id', user.id).single().then(({ data }) => {
-      if (cancelled) return
-      if (data?.qr_code) setQrCode(data.qr_code)
-    })
-    supabase.from('event_schedule').select('id, title, start_time, end_time, icon').eq('event_id', event.id).order('start_time', { ascending: true }).then(({ data }) => {
-      if (cancelled) return
-      if (data) setSchedule(data)
+      setHasDrinkOrder(!!drinkRes.data)
+      if (ticketRes.data?.qr_code) setQrCode(ticketRes.data.qr_code)
+      if (scheduleRes.data) setSchedule(scheduleRes.data)
     })
     return () => { cancelled = true }
   }, [event?.id, user?.id])
@@ -241,32 +274,8 @@ export default function HomePage() {
         <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
       </div>
 
-      {/* Countdown */}
-      {!eventPassed ? (
-        <div className="card-glow p-4 animate-glow-pulse">
-          <p className="text-accent-gradient text-sm font-semibold text-center mb-3">
-            Faltan {countdown.days} dias
-          </p>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { v: countdown.days, l: 'Dias' },
-              { v: countdown.hours, l: 'Horas' },
-              { v: countdown.minutes, l: 'Min' },
-              { v: countdown.seconds, l: 'Seg' },
-            ].map((item, i) => (
-              <div key={i} className="bg-white/[0.04] rounded-xl p-3 text-center">
-                <div className="text-3xl font-bold tabular-nums text-gradient-primary">{String(item.v).padStart(2, '0')}</div>
-                <div className="text-[9px] uppercase tracking-[0.2em] text-gold mt-1 font-medium">{item.l}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="card-glow p-5 text-center animate-glow-pulse">
-          <Sparkles className="w-6 h-6 mx-auto mb-2 text-gold" />
-          <p className="font-bold text-white text-lg">La fiesta ya ha empezado!</p>
-        </div>
-      )}
+      {/* Countdown — zero re-render component */}
+      {event.date && <CountdownTimer targetDate={event.date} />}
 
       {/* Ticket / Complete Order Banner */}
       {qrCode ? (
