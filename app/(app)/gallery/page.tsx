@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import NextImage from 'next/image'
-import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2 } from 'lucide-react'
+import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { downloadWithWatermark, shareWithWatermark } from '@/lib/watermark'
 import { supabase } from '@/lib/supabase'
@@ -113,6 +113,22 @@ function LazyImage({
 // ─── Batch loading: load N photos at a time as user scrolls ───
 const BATCH_SIZE = 20
 
+// Demo photos for testing (removed when real photos exist in DB)
+const DEMO_PHOTOS: Photo[] = [
+  { id: 'demo-1', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'Halloween 2025 — Fiesta', uploaded_by: '', created_at: '2025-11-06T20:21:00Z' },
+  { id: 'demo-2', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Halloween 2025 — Grupo', uploaded_by: '', created_at: '2025-11-06T20:22:00Z' },
+  { id: 'demo-3', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Halloween 2025 — Disfraces', uploaded_by: '', created_at: '2025-11-06T20:23:00Z' },
+  { id: 'demo-4', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:24:00Z' },
+  { id: 'demo-5', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Noche epica', uploaded_by: '', created_at: '2025-11-06T20:25:00Z' },
+  { id: 'demo-6', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:26:00Z' },
+  { id: 'demo-7', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'El squad completo', uploaded_by: '', created_at: '2025-11-06T20:27:00Z' },
+  { id: 'demo-8', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:28:00Z' },
+  { id: 'demo-9', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Mejor fiesta del año', uploaded_by: '', created_at: '2025-11-06T20:29:00Z' },
+  { id: 'demo-10', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:30:00Z' },
+  { id: 'demo-11', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Graduacion vibes', uploaded_by: '', created_at: '2025-11-06T20:31:00Z' },
+  { id: 'demo-12', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:32:00Z' },
+]
+
 export default function GalleryPage() {
   const { event, venue, loading: authLoading } = useAuth()
   const [allPhotos, setAllPhotos] = useState<Photo[]>([])
@@ -124,21 +140,7 @@ export default function GalleryPage() {
   const touchStartX = useRef(0)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
-  // Demo photos for testing (removed when real photos exist in DB)
-  const DEMO_PHOTOS: Photo[] = [
-    { id: 'demo-1', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'Halloween 2025 — Fiesta', uploaded_by: '', created_at: '2025-11-06T20:21:00Z' },
-    { id: 'demo-2', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Halloween 2025 — Grupo', uploaded_by: '', created_at: '2025-11-06T20:22:00Z' },
-    { id: 'demo-3', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Halloween 2025 — Disfraces', uploaded_by: '', created_at: '2025-11-06T20:23:00Z' },
-    { id: 'demo-4', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:24:00Z' },
-    { id: 'demo-5', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Noche epica', uploaded_by: '', created_at: '2025-11-06T20:25:00Z' },
-    { id: 'demo-6', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:26:00Z' },
-    { id: 'demo-7', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'El squad completo', uploaded_by: '', created_at: '2025-11-06T20:27:00Z' },
-    { id: 'demo-8', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:28:00Z' },
-    { id: 'demo-9', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Mejor fiesta del año', uploaded_by: '', created_at: '2025-11-06T20:29:00Z' },
-    { id: 'demo-10', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:30:00Z' },
-    { id: 'demo-11', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Graduacion vibes', uploaded_by: '', created_at: '2025-11-06T20:31:00Z' },
-    { id: 'demo-12', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:32:00Z' },
-  ]
+  const [dropboxUrl, setDropboxUrl] = useState<string | null>(null)
 
   // Fetch all photo metadata — venue-scoped if venue exists, else event-scoped (legacy)
   useEffect(() => {
@@ -150,17 +152,18 @@ export default function GalleryPage() {
         let query = supabase.from('photos').select('*').order('created_at', { ascending: false })
 
         if (venue?.id) {
-          // Venue-scoped: all photos from this venue (shared across institutes)
           query = query.eq('venue_id', venue.id)
         } else {
-          // Legacy: event-scoped photos
           query = query.eq('event_id', event!.id)
         }
 
         const { data, error } = await query
         if (cancelled) return
         if (!error && data && data.length > 0) {
-          setAllPhotos(data)
+          const dbxRecord = data.find(p => p.caption === '_dropbox_folder')
+          if (dbxRecord) setDropboxUrl(dbxRecord.url)
+          const realPhotos = data.filter(p => p.caption !== '_dropbox_folder')
+          setAllPhotos(realPhotos.length > 0 ? realPhotos : DEMO_PHOTOS)
         } else {
           setAllPhotos(DEMO_PHOTOS)
         }
@@ -334,6 +337,21 @@ export default function GalleryPage() {
           <span className="text-xs text-white-muted">
             {allPhotos.length} fotos cargadas
           </span>
+        </div>
+      )}
+
+      {/* Dropbox CTA */}
+      {dropboxUrl && (
+        <div className="mt-4 mb-2">
+          <a
+            href={dropboxUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] text-blue-400 text-sm font-semibold hover:bg-blue-500/10 transition-colors active:scale-[0.98]"
+          >
+            <ExternalLink className="w-4.5 h-4.5" />
+            Ver todas las fotos en Dropbox
+          </a>
         </div>
       )}
 

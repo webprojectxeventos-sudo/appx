@@ -19,12 +19,34 @@ import {
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
 import { ToastProvider } from '@/components/ui/toast'
+import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import { ReactNode } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 
 function BottomNav() {
   const pathname = usePathname()
-  const { profile, isAdmin, initialized } = useAuth()
+  const { profile, isAdmin, initialized, event } = useAuth()
+  const [hasSurveys, setHasSurveys] = useState(false)
+
+  useEffect(() => {
+    if (!event?.id) return
+    const checkSurveys = async () => {
+      const { count } = await supabase
+        .from('polls')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .eq('poll_type', 'survey')
+        .eq('is_active', true)
+      setHasSurveys((count || 0) > 0)
+    }
+    checkSurveys()
+    const channel = supabase.channel('polls-nav')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'polls', filter: `event_id=eq.${event.id}` }, () => {
+        checkSurveys()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [event?.id])
 
   if (!initialized) return null
 
@@ -36,7 +58,7 @@ function BottomNav() {
     { href: '/gallery', label: 'Galeria', icon: ImageIcon },
     { href: '/chat', label: 'Chat', icon: MessageCircle },
     { href: '/polls', label: 'Bebidas', icon: GlassWater },
-    { href: '/surveys', label: 'Encuestas', icon: BarChart3 },
+    ...(hasSurveys ? [{ href: '/surveys', label: 'Encuestas', icon: BarChart3 }] : []),
     { href: '/playlist', label: 'Playlist', icon: Music2 },
   ]
 

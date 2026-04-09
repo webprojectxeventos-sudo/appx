@@ -5,7 +5,7 @@ import NextImage from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
 import { useAuth } from '@/lib/auth-context'
-import { Trash2, Plus, Image } from 'lucide-react'
+import { Trash2, Plus, Image, Link2, ExternalLink, Pencil } from 'lucide-react'
 import type { Database } from '@/lib/types'
 
 type Photo = Database['public']['Tables']['photos']['Row']
@@ -23,6 +23,9 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
   const [showForm, setShowForm] = useState(false)
   const [urls, setUrls] = useState('')
   const [caption, setCaption] = useState('')
+  const [dropboxLink, setDropboxLink] = useState('')
+  const [dropboxId, setDropboxId] = useState<string | null>(null)
+  const [editingDropbox, setEditingDropbox] = useState(false)
 
   const fetchPhotos = useCallback(async () => {
     if (!venueId || !date) { setPhotos([]); return }
@@ -35,7 +38,16 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
         .eq('photo_date', date)
         .order('created_at', { ascending: false })
       if (error) throw error
-      setPhotos(data || [])
+      const all = data || []
+      const dbxRecord = all.find(p => p.caption === '_dropbox_folder')
+      if (dbxRecord) {
+        setDropboxLink(dbxRecord.url)
+        setDropboxId(dbxRecord.id)
+      } else {
+        setDropboxLink('')
+        setDropboxId(null)
+      }
+      setPhotos(all.filter(p => p.caption !== '_dropbox_folder'))
     } catch (err) {
       console.error('Error:', err)
     } finally {
@@ -44,6 +56,44 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
   }, [venueId, date])
 
   useEffect(() => { fetchPhotos() }, [fetchPhotos])
+
+  const handleSaveDropbox = async () => {
+    if (!user || !dropboxLink.trim()) return
+    try {
+      if (dropboxId) {
+        const { error } = await supabase.from('photos').update({ url: dropboxLink.trim() }).eq('id', dropboxId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('photos').insert({
+          venue_id: venueId,
+          photo_date: date,
+          url: dropboxLink.trim(),
+          caption: '_dropbox_folder',
+          uploaded_by: user.id,
+        })
+        if (error) throw error
+      }
+      setEditingDropbox(false)
+      success('Link de Dropbox guardado')
+      await fetchPhotos()
+    } catch {
+      showError('Error al guardar link de Dropbox')
+    }
+  }
+
+  const handleDeleteDropbox = async () => {
+    if (!dropboxId || !confirm('Eliminar link de Dropbox?')) return
+    try {
+      const { error } = await supabase.from('photos').delete().eq('id', dropboxId)
+      if (error) throw error
+      setDropboxLink('')
+      setDropboxId(null)
+      setEditingDropbox(false)
+      success('Link de Dropbox eliminado')
+    } catch {
+      showError('Error al eliminar')
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,7 +114,7 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
       setCaption('')
       success(`${urlList.length} fotos anadidas`)
       await fetchPhotos()
-    } catch (err) {
+    } catch {
       showError('Error al anadir fotos')
     }
   }
@@ -76,16 +126,53 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
       if (error) throw error
       success('Foto eliminada')
       await fetchPhotos()
-    } catch (err) {
+    } catch {
       showError('Error al eliminar')
     }
   }
 
   return (
     <div className="space-y-4">
+      {/* Dropbox folder link */}
+      <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.04] space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-white">
+          <Link2 className="w-4 h-4 text-blue-400" />
+          Carpeta de Dropbox
+        </div>
+        {dropboxId && !editingDropbox ? (
+          <div className="flex items-center gap-2">
+            <a href={dropboxLink} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs truncate flex-1 hover:underline flex items-center gap-1">
+              {dropboxLink} <ExternalLink className="w-3 h-3 flex-shrink-0" />
+            </a>
+            <button onClick={() => setEditingDropbox(true)} className="p-1.5 rounded-lg hover:bg-white/5 text-white-muted"><Pencil className="w-3 h-3" /></button>
+            <button onClick={handleDeleteDropbox} className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400"><Trash2 className="w-3 h-3" /></button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={dropboxLink}
+              onChange={e => setDropboxLink(e.target.value)}
+              placeholder="https://www.dropbox.com/sh/..."
+              className="flex-1 px-3 py-2 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 font-mono text-xs focus:outline-none focus:border-blue-500/40"
+            />
+            <button onClick={handleSaveDropbox} disabled={!dropboxLink.trim()} className="btn-primary text-xs px-3 py-1.5">
+              Guardar
+            </button>
+            {editingDropbox && (
+              <button onClick={() => { setEditingDropbox(false); fetchPhotos() }} className="btn-ghost text-xs">
+                Cancelar
+              </button>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] text-white-muted">Los usuarios veran un boton para abrir la galeria completa en Dropbox</p>
+      </div>
+
+      {/* Preview photos */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-white font-medium flex items-center gap-2">
-          <Image className="w-4 h-4 text-primary" /> {photos.length} fotos
+          <Image className="w-4 h-4 text-primary" /> {photos.length} fotos destacadas
         </span>
         <button onClick={() => setShowForm(!showForm)} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3 h-3" /> Anadir
@@ -97,7 +184,7 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
           <textarea
             value={urls}
             onChange={e => setUrls(e.target.value)}
-            placeholder="URLs de fotos (una por linea)"
+            placeholder="URLs de fotos destacadas (una por linea)"
             rows={4}
             className="w-full px-3 py-2 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 font-mono text-sm focus:outline-none focus:border-primary/40 resize-none"
             required
@@ -121,7 +208,7 @@ export function PhotosTab({ venueId, date }: PhotosTabProps) {
       ) : photos.length === 0 ? (
         <div className="py-8 text-center">
           <Image className="w-8 h-8 mx-auto mb-2 text-black-border" />
-          <p className="text-white-muted text-sm">Sin fotos para esta fecha</p>
+          <p className="text-white-muted text-sm">Sin fotos destacadas para esta fecha</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">

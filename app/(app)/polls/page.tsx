@@ -31,7 +31,7 @@ const ALLERGY_OPTIONS = [
 ]
 
 export default function DrinksPage() {
-  const { user, profile, event, loading } = useAuth()
+  const { user, profile, event, venue, loading } = useAuth()
   const { error: showError, success } = useToast()
   const [alcoholChoice, setAlcoholChoice] = useState<string | null>(null)
   const [softDrinkChoice, setSoftDrinkChoice] = useState<string | null>(null)
@@ -165,6 +165,8 @@ export default function DrinksPage() {
               userName: profile?.full_name || '',
               eventTitle: event.title,
               qrCode: ticketQr,
+              eventDate: event.date || null,
+              venueName: venue?.name || null,
             }),
           }).catch(() => {})
         }
