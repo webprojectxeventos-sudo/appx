@@ -98,7 +98,7 @@ export default function HomePage() {
     if (!event?.id) return
     let cancelled = false
     const fetchAnnouncements = async () => {
-      // Event-scoped announcements
+      // Fetch event-scoped and venue general announcements in parallel
       const eventQuery = supabase
         .from('messages')
         .select('id, content, created_at, user_id, is_general')
@@ -107,24 +107,25 @@ export default function HomePage() {
         .order('created_at', { ascending: false })
         .limit(3)
 
-      const { data: eventMsgs } = await eventQuery
+      const venueQuery = venue?.id
+        ? supabase
+            .from('messages')
+            .select('id, content, created_at, user_id, is_general')
+            .eq('venue_id', venue.id)
+            .eq('is_general', true)
+            .eq('is_announcement', true)
+            .order('created_at', { ascending: false })
+            .limit(3)
+        : null
+
+      const [eventResult, venueResult] = await Promise.all([
+        eventQuery,
+        venueQuery || Promise.resolve({ data: null }),
+      ])
       if (cancelled) return
 
-      // Venue general announcements
-      let venueMsgs: typeof eventMsgs = []
-      if (venue?.id) {
-        const { data } = await supabase
-          .from('messages')
-          .select('id, content, created_at, user_id, is_general')
-          .eq('venue_id', venue.id)
-          .eq('is_general', true)
-          .eq('is_announcement', true)
-          .order('created_at', { ascending: false })
-          .limit(3)
-        if (!cancelled && data) venueMsgs = data
-      }
-
-      if (cancelled) return
+      const eventMsgs = eventResult.data
+      const venueMsgs = venueResult.data || []
 
       // Merge and sort by date, take top 3
       const allMsgs = [...(eventMsgs || []), ...(venueMsgs || [])]
@@ -147,12 +148,14 @@ export default function HomePage() {
       }
     }
     fetchAnnouncements()
-    const channel = supabase.channel(`home-announcements-${event.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `event_id=eq.${event.id}` }, () => fetchAnnouncements()).subscribe()
-    // Also subscribe to venue general messages
-    const venueChannel = venue?.id
-      ? supabase.channel(`home-venue-announcements-${venue.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `venue_id=eq.${venue.id}` }, () => fetchAnnouncements()).subscribe()
-      : null
-    return () => { cancelled = true; supabase.removeChannel(channel); if (venueChannel) supabase.removeChannel(venueChannel) }
+    // Single channel for both event and venue announcements
+    let channel = supabase.channel(`home-announcements-${event.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `event_id=eq.${event.id}` }, () => fetchAnnouncements())
+    if (venue?.id) {
+      channel = channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `venue_id=eq.${venue.id}` }, () => fetchAnnouncements())
+    }
+    channel.subscribe()
+    return () => { cancelled = true; supabase.removeChannel(channel) }
   }, [event?.id, venue?.id])
 
   // Check drink order, ticket, and schedule

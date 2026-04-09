@@ -164,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+    let initHandled = false // Prevents onAuthStateChange from racing with init
 
     const init = async () => {
       try {
@@ -174,14 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         )
 
         if (cancelled) return
+        initHandled = true
 
         if (!session) {
-          setUser(null)
-          setProfile(null)
-          setEvent(null)
-          setVenue(null)
-          setEvents([])
-          setOrganization(null)
           setLoading(false)
           setInitialized(true)
           router.push('/login')
@@ -192,9 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await loadUserData(session.user)
       } catch (err) {
         console.error('[Auth] Init error:', err)
-        if (!cancelled) {
-          router.push('/login')
-        }
+        if (!cancelled) router.push('/login')
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -209,6 +203,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (authEvent, session) => {
         if (cancelled) return
 
+        // Skip INITIAL_SESSION — init() handles the first load.
+        // Skip TOKEN_REFRESHED — no need to reload data.
+        if (authEvent === 'INITIAL_SESSION' || authEvent === 'TOKEN_REFRESHED') return
+
         if (authEvent === 'SIGNED_OUT' || !session) {
           setUser(null)
           setProfile(null)
@@ -218,15 +216,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOrganization(null)
           loadedUserId.current = null
           setLoading(false)
+          setInitialized(true)
           router.push('/login')
           return
         }
 
+        // SIGNED_IN from a different user (e.g. login after being on /login)
         if (session.user.id !== loadedUserId.current) {
+          // If init() already handled this same session, skip
+          if (initHandled && loadedUserId.current === session.user.id) return
           setUser(session.user)
           setLoading(true)
           await loadUserData(session.user)
-          if (!cancelled) setLoading(false)
+          if (!cancelled) {
+            setLoading(false)
+            setInitialized(true)
+          }
         }
       }
     )

@@ -172,16 +172,18 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   const { loading, initialized, user, event, isStaff } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
-  const [surveyChecked, setSurveyChecked] = useState(false)
   const [needsSurvey, setNeedsSurvey] = useState(false)
 
-  // Check if user has completed drink order (survey)
+  // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {
-    if (!initialized || !user?.id || !event?.id || isStaff) {
-      setSurveyChecked(true)
-      return
-    }
+    if (!initialized || !user?.id || !event?.id || isStaff) return
     let cancelled = false
+
+    // Check sessionStorage cache first to avoid repeated queries
+    const cacheKey = `drink_order_${event.id}_${user.id}`
+    const cached = sessionStorage.getItem(cacheKey)
+    if (cached === 'done') return // Already completed, no redirect needed
+
     const check = async () => {
       const { count } = await supabase
         .from('drink_orders')
@@ -190,21 +192,24 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
         .eq('user_id', user.id)
       if (cancelled) return
       const hasOrder = (count || 0) > 0
-      setNeedsSurvey(!hasOrder)
-      setSurveyChecked(true)
+      if (hasOrder) {
+        sessionStorage.setItem(cacheKey, 'done')
+      } else {
+        setNeedsSurvey(true)
+      }
     }
     check()
     return () => { cancelled = true }
   }, [initialized, user?.id, event?.id, isStaff])
 
-  // Redirect to polls if survey not completed
+  // Redirect to polls if survey not completed (non-blocking — page already visible)
   useEffect(() => {
-    if (!surveyChecked || !needsSurvey) return
+    if (!needsSurvey) return
     const isAllowed = ALLOWED_BEFORE_SURVEY.some(p => pathname === p || pathname.startsWith(p + '/'))
     if (!isAllowed) {
       router.replace('/polls')
     }
-  }, [surveyChecked, needsSurvey, pathname, router])
+  }, [needsSurvey, pathname, router])
 
   const isFullScreen = FULL_SCREEN_PAGES.some(
     (p) => pathname === p || pathname.startsWith(p + '/')

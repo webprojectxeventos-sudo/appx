@@ -71,6 +71,7 @@ export default function ChatPage() {
   const prevAnnouncementCount = useRef(0)
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isFirstLoad = useRef(true)
+  const nameCache = useRef<Record<string, string | null>>({})
 
   const startCooldown = useCallback((ms: number) => {
     cooldownEnd.current = Date.now() + ms
@@ -85,7 +86,7 @@ export default function ChatPage() {
       } else {
         setCooldownLeft(Math.ceil(remaining / 1000))
       }
-    }, 250)
+    }, 1000)
   }, [])
 
   // Cleanup cooldown timer on unmount
@@ -174,7 +175,7 @@ export default function ChatPage() {
         .in('id', userIds)
 
       const nameMap: Record<string, string | null> = {}
-      usersData?.forEach((u) => (nameMap[u.id] = u.full_name))
+      usersData?.forEach((u) => { nameMap[u.id] = u.full_name; nameCache.current[u.id] = u.full_name })
 
       // Fetch all reactions in one query (skip if no messages)
       let reactionsData: Database['public']['Tables']['message_reactions']['Row'][] = []
@@ -281,14 +282,24 @@ export default function ChatPage() {
           table: 'messages',
           filter,
         },
-        () => fetchMessages()
+        (payload) => {
+          const newMsg = payload.new as Message
+          const cachedName = nameCache.current[newMsg.user_id]
+          if (cachedName !== undefined) {
+            setMessages(prev => [...prev, { ...newMsg, sender_name: cachedName, reactions: [] }])
+          } else {
+            // Fetch unknown sender name, then append message
+            supabase.from('users').select('id, full_name').eq('id', newMsg.user_id).single().then(({ data }) => {
+              const name = data?.full_name || null
+              nameCache.current[newMsg.user_id] = name
+              setMessages(prev => [...prev, { ...newMsg, sender_name: name, reactions: [] }])
+            })
+          }
+        }
       )
       .subscribe()
 
-    // Subscribe to reactions — filter by message IDs of current chat
-    // We use a broad subscription and filter client-side since reactions
-    // don't have event_id directly. The fetchMessages call re-fetches all
-    // data with proper filters.
+    // Subscribe to reactions — update in-place instead of full refetch
     const reactChannel = supabase
       .channel(`chat-reactions-${channelId}`)
       .on(
@@ -299,11 +310,40 @@ export default function ChatPage() {
           table: 'message_reactions',
         },
         (payload) => {
-          // Only refetch if the reaction is for a message in our current view
-          const messageId = (payload.new as Record<string, unknown>)?.message_id ||
-                            (payload.old as Record<string, unknown>)?.message_id
-          if (messageId && messages.some(m => m.id === messageId)) {
-            fetchMessages()
+          if (payload.eventType === 'INSERT') {
+            const r = payload.new as { message_id: string; user_id: string; emoji: string }
+            if (r.user_id === user?.id) return // Already applied optimistically
+            setMessages(prev => {
+              const idx = prev.findIndex(m => m.id === r.message_id)
+              if (idx === -1) return prev
+              const msg = prev[idx]
+              const existing = msg.reactions.find(rx => rx.emoji === r.emoji)
+              const updated = [...prev]
+              updated[idx] = {
+                ...msg,
+                reactions: existing
+                  ? msg.reactions.map(rx => rx.emoji === r.emoji ? { ...rx, count: rx.count + 1 } : rx)
+                  : [...msg.reactions, { emoji: r.emoji, count: 1, hasReacted: false }],
+              }
+              return updated
+            })
+          } else if (payload.eventType === 'DELETE') {
+            const r = payload.old as { message_id?: string; user_id?: string; emoji?: string }
+            if (!r.message_id || !r.emoji) return
+            if (r.user_id === user?.id) return // Already applied optimistically
+            setMessages(prev => {
+              const idx = prev.findIndex(m => m.id === r.message_id)
+              if (idx === -1) return prev
+              const msg = prev[idx]
+              const updated = [...prev]
+              updated[idx] = {
+                ...msg,
+                reactions: msg.reactions
+                  .map(rx => rx.emoji === r.emoji ? { ...rx, count: Math.max(0, rx.count - 1) } : rx)
+                  .filter(rx => rx.count > 0),
+              }
+              return updated
+            })
           }
         }
       )
@@ -391,6 +431,24 @@ export default function ChatPage() {
     const message = messages.find((m) => m.id === messageId)
     const existing = message?.reactions.find((r) => r.emoji === emoji && r.hasReacted)
 
+    // Optimistic update — apply immediately, revert on error
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      if (existing) {
+        return { ...m, reactions: m.reactions.map(r =>
+          r.emoji === emoji ? { ...r, count: Math.max(0, r.count - 1), hasReacted: false } : r
+        ).filter(r => r.count > 0) }
+      }
+      const existingR = m.reactions.find(r => r.emoji === emoji)
+      if (existingR) {
+        return { ...m, reactions: m.reactions.map(r =>
+          r.emoji === emoji ? { ...r, count: r.count + 1, hasReacted: true } : r
+        ) }
+      }
+      return { ...m, reactions: [...m.reactions, { emoji, count: 1, hasReacted: true }] }
+    }))
+    setShowReactionsFor(null)
+
     try {
       if (existing) {
         await supabase
@@ -406,9 +464,9 @@ export default function ChatPage() {
           emoji,
         })
       }
-      setShowReactionsFor(null)
     } catch (err) {
       console.error('Error toggling reaction:', err)
+      fetchMessages() // Revert optimistic update on error
     }
   }
 

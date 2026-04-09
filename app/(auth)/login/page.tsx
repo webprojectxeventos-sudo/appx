@@ -86,26 +86,25 @@ function LoginContent() {
             await supabase.from('users').update({ event_id: joinEventId }).eq('id', userId)
 
             // Redirect to polls (drink survey for the new event)
-            router.push('/polls')
+            router.replace('/polls')
             return
           }
           // Code invalid (already used) — still join if upsert works, just don't consume code
-          // Try direct upsert (code was already consumed for them in a previous attempt?)
           await supabase.from('user_events').upsert({
             user_id: userId,
             event_id: joinEventId,
             role: 'attendee',
           }, { onConflict: 'user_id,event_id' })
           await supabase.from('users').update({ event_id: joinEventId }).eq('id', userId)
-          router.push('/polls')
+          router.replace('/polls')
           return
         } catch {
-          // If join fails, still let them in to their existing event
           console.error('Error joining event, continuing to home')
         }
       }
 
-      router.push('/home')
+      // Don't setLoading(false) — keep "Entrando..." visible until navigation completes
+      router.replace('/home')
     } catch {
       setError('Error inesperado')
       setLoading(false)
