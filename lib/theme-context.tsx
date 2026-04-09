@@ -12,15 +12,14 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark')
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'dark'
+    return (localStorage.getItem('px-theme') as Theme) || 'dark'
+  })
 
   useEffect(() => {
-    const stored = localStorage.getItem('px-theme') as Theme | null
-    if (stored) {
-      setTheme(stored)
-      document.documentElement.setAttribute('data-theme', stored)
-    }
-  }, [])
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'

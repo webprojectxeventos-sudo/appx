@@ -10,10 +10,22 @@ function getSupabaseAdmin() {
 
 export async function POST(req: Request) {
   try {
+    // Auth verified by middleware — x-user-id header set
+    const callerId = req.headers.get('x-user-id')
+    if (!callerId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { email, fullName, gender, eventId, addedBy, organizationId } = await req.json()
 
     if (!email || !fullName || !eventId) {
       return NextResponse.json({ error: 'email, fullName, and eventId are required' }, { status: 400 })
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
     const supabase = getSupabaseAdmin()

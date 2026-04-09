@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
@@ -58,26 +58,7 @@ export default function IncidentsPage() {
   })
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    if (!organization?.id) return
-    let cancelled = false
-    fetchData().then(() => { if (cancelled) return })
-    return () => { cancelled = true }
-  }, [organization?.id])
-
-  // Realtime subscription
-  useEffect(() => {
-    if (!organization?.id) return
-    const sub = supabase
-      .channel(`incidents-realtime-${organization.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents', filter: `organization_id=eq.${organization.id}` }, () => {
-        fetchData()
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(sub) }
-  }, [organization?.id])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!organization?.id) return
 
     const eventIds = events.map(e => e.id)
@@ -111,7 +92,24 @@ export default function IncidentsPage() {
       setIncidents(enriched)
     }
     setLoading(false)
-  }
+  }, [organization?.id, events])
+
+  useEffect(() => {
+    if (!organization?.id) return
+    fetchData()
+  }, [organization?.id, fetchData])
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!organization?.id) return
+    const sub = supabase
+      .channel(`incidents-realtime-${organization.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents', filter: `organization_id=eq.${organization.id}` }, () => {
+        fetchData()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(sub) }
+  }, [organization?.id, fetchData])
 
   const handleCreate = async () => {
     if (!form.event_id || !form.description || !user || !organization?.id) return

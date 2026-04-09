@@ -30,7 +30,14 @@ export const metadata: Metadata = {
     url: "https://app.projectxeventos.es",
     siteName: "Project X",
     type: "website",
-    images: [{ url: "/icon-512.png", width: 512, height: 512 }],
+    locale: "es_ES",
+    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "Project X logo" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "Project X",
+    description: "La app exclusiva de tu graduacion. Fotos, chat, encuestas y mas.",
+    images: ["/icon-512.png"],
   },
 };
 

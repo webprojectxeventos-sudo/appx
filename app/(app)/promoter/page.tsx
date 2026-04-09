@@ -118,9 +118,13 @@ export default function PromoterPage() {
     if (!selectedEventId || !user?.id) return
     setAssigningId(targetUserId)
     try {
+      const { data: { session: s } } = await supabase.auth.getSession()
       const res = await fetch('/api/promoter/assign-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}),
+        },
         body: JSON.stringify({ userId: targetUserId, eventId: selectedEventId, addedBy: user.id }),
       })
       const data = await res.json()
@@ -142,9 +146,13 @@ export default function PromoterPage() {
     if (!newName || !newEmail || !selectedEventId || !user?.id) return
     setCreating(true)
     try {
+      const { data: { session: s } } = await supabase.auth.getSession()
       const res = await fetch('/api/promoter/create-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}),
+        },
         body: JSON.stringify({
           email: newEmail,
           fullName: newName,

@@ -76,6 +76,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'title and body are required' }, { status: 400 })
     }
 
+    // Validate UUID formats
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (body.event_ids?.some(id => !uuidRegex.test(id))) {
+      return NextResponse.json({ error: 'Invalid event_id format' }, { status: 400 })
+    }
+    if (body.venue_id && !uuidRegex.test(body.venue_id)) {
+      return NextResponse.json({ error: 'Invalid venue_id format' }, { status: 400 })
+    }
+
     const supabaseAdmin = getSupabaseAdmin()
 
     // Build query for push subscriptions based on segmentation

@@ -285,6 +285,10 @@ export default function ChatPage() {
       )
       .subscribe()
 
+    // Subscribe to reactions — filter by message IDs of current chat
+    // We use a broad subscription and filter client-side since reactions
+    // don't have event_id directly. The fetchMessages call re-fetches all
+    // data with proper filters.
     const reactChannel = supabase
       .channel(`chat-reactions-${channelId}`)
       .on(
@@ -294,7 +298,14 @@ export default function ChatPage() {
           schema: 'public',
           table: 'message_reactions',
         },
-        () => fetchMessages()
+        (payload) => {
+          // Only refetch if the reaction is for a message in our current view
+          const messageId = (payload.new as Record<string, unknown>)?.message_id ||
+                            (payload.old as Record<string, unknown>)?.message_id
+          if (messageId && messages.some(m => m.id === messageId)) {
+            fetchMessages()
+          }
+        }
       )
       .subscribe()
 

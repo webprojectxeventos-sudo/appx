@@ -4,9 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
-import { useToast } from '@/components/ui/toast'
 import { Plus, ChevronDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { SearchInput } from '@/components/admin/search-input'
 import { DateStrip } from '@/components/admin/events/date-strip'
 import { VenueCard } from '@/components/admin/events/venue-card'
@@ -25,7 +23,6 @@ function formatDate(dateStr: string): string {
 export default function EventsPage() {
   const { user, organization, isSuperAdmin, isAdmin, initialized } = useAuth()
   const adminCtx = useAdminSelection()
-  const { error: showError, success } = useToast()
 
   const [allEvents, setAllEvents] = useState<Event[]>([])
   const [allVenues, setAllVenues] = useState<Venue[]>([])

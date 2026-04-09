@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /scanner
+Disallow: /api/
+Disallow: /profile
+Disallow: /promoter
+
+Sitemap: https://app.projectxeventos.es/sitemap.xml

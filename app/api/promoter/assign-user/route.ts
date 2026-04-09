@@ -10,10 +10,22 @@ function getSupabaseAdmin() {
 
 export async function POST(req: Request) {
   try {
+    // Auth verified by middleware — x-user-id header set
+    const callerId = req.headers.get('x-user-id')
+    if (!callerId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { userId, eventId, addedBy } = await req.json()
 
     if (!userId || !eventId) {
       return NextResponse.json({ error: 'userId and eventId are required' }, { status: 400 })
+    }
+
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(eventId)) {
+      return NextResponse.json({ error: 'Invalid UUID format' }, { status: 400 })
     }
 
     const supabase = getSupabaseAdmin()

@@ -3,11 +3,26 @@ import nodemailer from 'nodemailer'
 
 export async function POST(req: Request) {
   try {
+    // Verify authentication via middleware header
+    const userId = req.headers.get('x-user-id')
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { to, userName, eventTitle, qrCode, eventDate, venueName } = await req.json()
 
     if (!to || !userName || !eventTitle || !qrCode) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(to)) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
+    }
+
+    // HTML-escape user-provided strings to prevent XSS in emails
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
@@ -25,7 +40,10 @@ export async function POST(req: Request) {
       ? new Date(eventDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       : null
 
-    const firstName = userName.split(' ')[0]
+    const safeUserName = esc(userName)
+    const safeEventTitle = esc(eventTitle)
+    const safeVenueName = venueName ? esc(venueName) : null
+    const firstName = safeUserName.split(' ')[0]
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -76,7 +94,7 @@ export async function POST(req: Request) {
                     <!-- Greeting -->
                     <p style="margin:0 0 6px;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;">Hola, ${firstName}</p>
                     <p style="margin:0 0 28px;font-size:14px;color:#777777;line-height:1.6;">
-                      Tu registro para <strong style="color:#d4a843;">${eventTitle}</strong> esta confirmado. Presenta este codigo QR en la entrada.
+                      Tu registro para <strong style="color:#d4a843;">${safeEventTitle}</strong> esta confirmado. Presenta este codigo QR en la entrada.
                     </p>
                   </td>
                 </tr>
@@ -98,7 +116,7 @@ export async function POST(req: Request) {
                       <tr>
                         <td>
                           <p style="margin:0;font-size:11px;color:#555555;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Lugar</p>
-                          <p style="margin:4px 0 0;font-size:14px;color:#cccccc;font-weight:500;">${venueName}</p>
+                          <p style="margin:4px 0 0;font-size:14px;color:#cccccc;font-weight:500;">${safeVenueName}</p>
                         </td>
                       </tr>
                       ` : ''}
@@ -180,7 +198,7 @@ export async function POST(req: Request) {
     await transporter.sendMail({
       from: `"Project X" <${process.env.SMTP_FROM}>`,
       to,
-      subject: `Tu entrada para ${eventTitle} — Project X`,
+      subject: `Tu entrada para ${safeEventTitle} — Project X`,
       html,
     })
 

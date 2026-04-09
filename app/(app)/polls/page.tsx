@@ -157,9 +157,13 @@ export default function DrinksPage() {
         if (ticketQr) {
           setQrCode(ticketQr as string)
           // Send QR ticket email
+          const { data: { session: currentSession } } = await supabase.auth.getSession()
           fetch('/api/send-ticket', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(currentSession?.access_token ? { Authorization: `Bearer ${currentSession.access_token}` } : {}),
+            },
             body: JSON.stringify({
               to: profile?.email || user.email,
               userName: profile?.full_name || '',

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Plus, Trash2, BarChart3, ToggleLeft, ToggleRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -31,9 +31,7 @@ export function SurveysTab({ eventId }: SurveysTabProps) {
   const [newMultiple, setNewMultiple] = useState(false)
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => { fetchPolls() }, [eventId])
-
-  const fetchPolls = async () => {
+  const fetchPolls = useCallback(async () => {
     setLoading(true)
     const { data: pollsData } = await supabase
       .from('polls')
@@ -44,22 +42,41 @@ export function SurveysTab({ eventId }: SurveysTabProps) {
 
     if (!pollsData) { setLoading(false); return }
 
-    const enriched: AdminPoll[] = await Promise.all(
-      pollsData.map(async poll => {
-        const { data: options } = await supabase.from('poll_options').select('id, option_text').eq('poll_id', poll.id)
-        const { data: votes } = await supabase.from('poll_votes').select('poll_option_id').eq('poll_id', poll.id)
-        const voteCounts: Record<string, number> = {}
-        votes?.forEach(v => { voteCounts[v.poll_option_id] = (voteCounts[v.poll_option_id] || 0) + 1 })
-        return {
-          ...poll,
-          options: (options || []).map(o => ({ ...o, votes: voteCounts[o.id] || 0 })),
-          total_votes: votes?.length || 0,
-        }
-      })
-    )
+    // Batch queries instead of N+1
+    const pollIds = pollsData.map(p => p.id)
+    const [optionsResult, votesResult] = await Promise.all([
+      supabase.from('poll_options').select('id, option_text, poll_id').in('poll_id', pollIds),
+      supabase.from('poll_votes').select('poll_option_id, poll_id').in('poll_id', pollIds),
+    ])
+
+    const optionsByPoll: Record<string, { id: string; option_text: string }[]> = {}
+    optionsResult.data?.forEach(o => {
+      if (!optionsByPoll[o.poll_id]) optionsByPoll[o.poll_id] = []
+      optionsByPoll[o.poll_id].push(o)
+    })
+
+    const votesByPoll: Record<string, Record<string, number>> = {}
+    const totalVotesByPoll: Record<string, number> = {}
+    votesResult.data?.forEach(v => {
+      if (!votesByPoll[v.poll_id]) votesByPoll[v.poll_id] = {}
+      votesByPoll[v.poll_id][v.poll_option_id] = (votesByPoll[v.poll_id][v.poll_option_id] || 0) + 1
+      totalVotesByPoll[v.poll_id] = (totalVotesByPoll[v.poll_id] || 0) + 1
+    })
+
+    const enriched: AdminPoll[] = pollsData.map(poll => ({
+      ...poll,
+      options: (optionsByPoll[poll.id] || []).map(o => ({
+        ...o,
+        votes: votesByPoll[poll.id]?.[o.id] || 0,
+      })),
+      total_votes: totalVotesByPoll[poll.id] || 0,
+    }))
+
     setPolls(enriched)
     setLoading(false)
-  }
+  }, [eventId])
+
+  useEffect(() => { fetchPolls() }, [fetchPolls])
 
   const handleCreate = async () => {
     if (!newQuestion || !profile?.id) return

@@ -171,8 +171,10 @@ export default function HomePage() {
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const formatTime = (d: string) => new Date(d).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  // Stable timestamp (initialized once via state, avoids impure render)
+  const [now] = useState(() => Date.now())
   const timeAgo = (d: string) => {
-    const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000)
+    const mins = Math.floor((now - new Date(d).getTime()) / 60000)
     if (mins < 1) return 'Ahora'
     if (mins < 60) return `${mins}min`
     const h = Math.floor(mins / 60)

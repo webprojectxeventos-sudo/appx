@@ -32,12 +32,15 @@ interface GroupDetailDrawerProps {
 }
 
 export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDetailDrawerProps) {
+  // Reset tab when event changes using key in parent, but also track locally
   const [activeTab, setActiveTab] = useState<TabId>('codes')
+  const [prevEventId, setPrevEventId] = useState<string | null>(null)
 
-  // Reset tab when a different event is opened
-  useEffect(() => {
-    setActiveTab('codes')
-  }, [event?.id])
+  // Reset tab when a different event is opened (derived state pattern)
+  if (event?.id !== prevEventId) {
+    setPrevEventId(event?.id || null)
+    if (activeTab !== 'codes') setActiveTab('codes')
+  }
 
   // Close on Escape
   useEffect(() => {

@@ -37,7 +37,7 @@ export function PollsTab({ eventId, eventType, eventTitle }: PollsTabProps) {
       if (error) throw error
 
       const userIds = (ordersData || []).map(o => o.user_id)
-      let usersMap: Record<string, { full_name: string | null; email: string; gender: string | null }> = {}
+      const usersMap: Record<string, { full_name: string | null; email: string; gender: string | null }> = {}
 
       if (userIds.length > 0) {
         const { data: usersData } = await supabase

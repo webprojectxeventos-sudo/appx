@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
 import {
-  Users, GlassWater, MessageCircle, Ticket, BarChart3, TrendingUp,
+  Users, MessageCircle, Ticket, BarChart3,
   AlertTriangle, Activity, Clock, Radio,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
   // Local state for inline selection
   const [allEvents, setAllEvents] = useState<Event[]>([])
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [userSelectedDate, setUserSelectedDate] = useState<string | null>(null)
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null)
   const [groupStats, setGroupStats] = useState<GroupStats[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,16 +67,16 @@ export default function DashboardPage() {
   }, [user?.id, organization?.id, isSuperAdmin])
 
   // Derived: unique dates
-  const dates = [...new Set(allEvents.map(e => formatDate(e.date)))].sort()
+  const dates = useMemo(() => [...new Set(allEvents.map(e => formatDate(e.date)))].sort(), [allEvents])
 
-  // Auto-select closest date
-  useEffect(() => {
-    if (selectedDate && dates.includes(selectedDate)) return
-    if (dates.length === 0) { setSelectedDate(null); return }
+  // Auto-select closest date (derived, no effect needed)
+  const selectedDate = useMemo(() => {
+    if (userSelectedDate && dates.includes(userSelectedDate)) return userSelectedDate
+    if (dates.length === 0) return null
     const today = new Date().toISOString().split('T')[0]
     const futureDate = dates.find(d => d >= today)
-    setSelectedDate(futureDate || dates[dates.length - 1])
-  }, [dates, selectedDate])
+    return futureDate || dates[dates.length - 1]
+  }, [dates, userSelectedDate])
 
   // Events for selected date
   const eventsForDate = allEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate)
@@ -118,10 +118,16 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    if (activeEvents.length === 0) { setGroupStats([]); setLoading(false); return }
+    if (activeEvents.length === 0) {
+      setGroupStats([])
+      setLoading(false)
+      return
+    }
+    let cancelled = false
     setLoading(true)
-    loadStats(activeEvents).then(() => setLoading(false))
-  }, [activeEvents.length, selectedDate, selectedVenueId])
+    loadStats(activeEvents).then(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [activeEvents.length, selectedDate, selectedVenueId, loadStats])
 
   // Realtime feed
   useEffect(() => {
@@ -205,7 +211,7 @@ export default function DashboardPage() {
           {dates.length > 0 && (
             <select
               value={selectedDate || ''}
-              onChange={e => { setSelectedDate(e.target.value || null); setSelectedVenueId(null) }}
+              onChange={e => { setUserSelectedDate(e.target.value || null); setSelectedVenueId(null) }}
               className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
             >
               {dates.map(d => (

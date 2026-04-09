@@ -44,7 +44,7 @@ export function PlaylistTab({ eventId }: PlaylistTabProps) {
       if (error) throw error
 
       const songIds = (data || []).map(s => s.id)
-      let votesMap: Record<string, number> = {}
+      const votesMap: Record<string, number> = {}
       if (songIds.length > 0) {
         const { data: votesData } = await supabase.from('playlist_votes').select('song_id').in('song_id', songIds)
         votesData?.forEach(v => { votesMap[v.song_id] = (votesMap[v.song_id] || 0) + 1 })

@@ -52,7 +52,7 @@ function escapeRegex(str: string): string {
 
 function createWordRegex(word: string): RegExp {
   // Reemplazar vocales con versiones con/sin acento
-  let pattern = escapeRegex(word)
+  const pattern = escapeRegex(word)
     .replace(/a/gi, '[aáà]')
     .replace(/e/gi, '[eéè]')
     .replace(/i/gi, '[iíì]')

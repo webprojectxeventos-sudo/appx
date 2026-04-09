@@ -27,13 +27,16 @@ export default function PlaylistPage() {
   const [newSpotify, setNewSpotify] = useState('')
   const [adding, setAdding] = useState(false)
 
+  const eventId = event?.id
+  const userId = user?.id
+
   const fetchSongs = useCallback(async () => {
-    if (!event?.id || !user?.id) return
+    if (!eventId || !userId) return
 
     const { data: songsData } = await supabase
       .from('playlist_songs')
       .select('id, title, artist, spotify_url, added_by')
-      .eq('event_id', event.id)
+      .eq('event_id', eventId)
       .order('created_at', { ascending: false })
 
     if (!songsData) { setLoading(false); return }
@@ -49,32 +52,28 @@ export default function PlaylistPage() {
       .in('song_id', songsData.map((s) => s.id))
 
     const voteCounts: Record<string, number> = {}
-    const userVotes = new Set<string>()
+    const userVoted = new Set<string>()
     allVotes?.forEach((v) => {
       voteCounts[v.song_id] = (voteCounts[v.song_id] || 0) + 1
-      if (v.user_id === user.id) userVotes.add(v.song_id)
+      if (v.user_id === userId) userVoted.add(v.song_id)
     })
 
     const enriched: Song[] = songsData.map((s) => ({
       ...s,
       added_by_name: nameMap[s.added_by] || 'Anonimo',
       votes: voteCounts[s.id] || 0,
-      user_voted: userVotes.has(s.id),
+      user_voted: userVoted.has(s.id),
     }))
 
     // Sort by votes descending
     enriched.sort((a, b) => b.votes - a.votes)
     setSongs(enriched)
     setLoading(false)
-  }, [event?.id, user?.id])
+  }, [eventId, userId])
 
   useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      await fetchSongs()
-    }
-    load()
-    return () => { cancelled = true }
+    fetchSongs()
+    return () => {}
   }, [fetchSongs])
 
   // Realtime

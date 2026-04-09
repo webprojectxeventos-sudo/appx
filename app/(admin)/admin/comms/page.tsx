@@ -11,7 +11,7 @@ import { Pagination } from '@/components/admin/pagination'
 import { cn } from '@/lib/utils'
 import {
   Send, Radio, MessageCircle, Shield, Trash2, Pin, PinOff, VolumeX, Volume2,
-  Check, FileText, Plus, X, Bell, BellRing, Zap, Clock, Users,
+  Check, FileText, Bell, BellRing, Clock, Users,
 } from 'lucide-react'
 import type { Database } from '@/lib/types'
 

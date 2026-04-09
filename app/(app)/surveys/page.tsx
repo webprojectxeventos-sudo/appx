@@ -29,71 +29,80 @@ export default function SurveysPage() {
   const [loading, setLoading] = useState(true)
   const [voting, setVoting] = useState<string | null>(null)
 
+  const eventId = event?.id
+  const userId = user?.id
+
   const fetchPolls = useCallback(async () => {
-    if (!event?.id || !user?.id) return
+    if (!eventId || !userId) return
     setLoading(true)
 
     const { data: pollsData } = await supabase
       .from('polls')
       .select('id, question, is_active, allow_multiple, ends_at')
-      .eq('event_id', event.id)
+      .eq('event_id', eventId)
       .eq('poll_type', 'survey')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
 
-    if (!pollsData) { setLoading(false); return }
+    if (!pollsData || pollsData.length === 0) { setPolls([]); setLoading(false); return }
 
-    const enriched: Poll[] = await Promise.all(
-      pollsData.map(async (poll) => {
-        const { data: options } = await supabase
-          .from('poll_options')
-          .select('id, option_text')
-          .eq('poll_id', poll.id)
+    // Batch queries: 3 calls instead of 3*N
+    const pollIds = pollsData.map(p => p.id)
+    const [optionsResult, allVotesResult] = await Promise.all([
+      supabase.from('poll_options').select('id, option_text, poll_id').in('poll_id', pollIds),
+      supabase.from('poll_votes').select('poll_option_id, poll_id, user_id').in('poll_id', pollIds),
+    ])
 
-        const { data: allVotes } = await supabase
-          .from('poll_votes')
-          .select('poll_option_id')
-          .eq('poll_id', poll.id)
+    // Group options by poll
+    const optionsByPoll: Record<string, { id: string; option_text: string }[]> = {}
+    optionsResult.data?.forEach(o => {
+      if (!optionsByPoll[o.poll_id]) optionsByPoll[o.poll_id] = []
+      optionsByPoll[o.poll_id].push(o)
+    })
 
-        const { data: userVotes } = await supabase
-          .from('poll_votes')
-          .select('poll_option_id')
-          .eq('poll_id', poll.id)
-          .eq('user_id', user.id)
+    // Count votes and track user votes per poll
+    const voteCountsByPoll: Record<string, Record<string, number>> = {}
+    const totalByPoll: Record<string, number> = {}
+    const userVotesByPoll: Record<string, string[]> = {}
 
-        const voteCounts: Record<string, number> = {}
-        allVotes?.forEach((v) => {
-          voteCounts[v.poll_option_id] = (voteCounts[v.poll_option_id] || 0) + 1
-        })
+    allVotesResult.data?.forEach(v => {
+      // Vote counts
+      if (!voteCountsByPoll[v.poll_id]) voteCountsByPoll[v.poll_id] = {}
+      voteCountsByPoll[v.poll_id][v.poll_option_id] = (voteCountsByPoll[v.poll_id][v.poll_option_id] || 0) + 1
+      totalByPoll[v.poll_id] = (totalByPoll[v.poll_id] || 0) + 1
+      // User's own votes
+      if (v.user_id === userId) {
+        if (!userVotesByPoll[v.poll_id]) userVotesByPoll[v.poll_id] = []
+        userVotesByPoll[v.poll_id].push(v.poll_option_id)
+      }
+    })
 
-        return {
-          ...poll,
-          options: (options || []).map((o) => ({
-            ...o,
-            vote_count: voteCounts[o.id] || 0,
-          })),
-          user_votes: (userVotes || []).map((v) => v.poll_option_id),
-          total_votes: allVotes?.length || 0,
-        }
-      })
-    )
+    const enriched: Poll[] = pollsData.map(poll => ({
+      ...poll,
+      options: (optionsByPoll[poll.id] || []).map(o => ({
+        ...o,
+        vote_count: voteCountsByPoll[poll.id]?.[o.id] || 0,
+      })),
+      user_votes: userVotesByPoll[poll.id] || [],
+      total_votes: totalByPoll[poll.id] || 0,
+    }))
 
     setPolls(enriched)
     setLoading(false)
-  }, [event?.id, user?.id])
+  }, [eventId, userId])
 
   useEffect(() => { fetchPolls() }, [fetchPolls])
 
   useEffect(() => {
-    if (!event?.id) return
+    if (!eventId) return
     const channel = supabase
-      .channel(`surveys-realtime-${event.id}`)
+      .channel(`surveys-realtime-${eventId}`)
       // poll_votes no tiene event_id — filtro server-side imposible.
       // Se filtra client-side: fetchPolls() filtra polls por event.id
       .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, () => fetchPolls())
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [event?.id, fetchPolls])
+  }, [eventId, fetchPolls])
 
   const handleVote = async (pollId: string, optionId: string) => {
     if (!user?.id) return
