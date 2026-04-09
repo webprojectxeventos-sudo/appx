@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import NextImage from 'next/image'
 import { Layers, PartyPopper, GraduationCap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GroupRow } from './group-row'
@@ -32,12 +33,19 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
 
   return (
     <>
-      <div className="card flex flex-col min-w-[280px] max-w-[360px] w-full">
+      <div className="card flex flex-col min-w-[280px] max-w-[360px] w-full overflow-hidden">
+        {/* Venue image */}
+        {venue.image_url && (
+          <div className="relative h-24 bg-black-card shrink-0">
+            <NextImage src={venue.image_url} alt={venue.name} fill className="object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+          </div>
+        )}
         {/* Header */}
-        <div className="flex items-center justify-between p-4 pb-2 border-b border-black-border">
+        <div className={cn("flex items-center justify-between p-4 pb-2 border-b border-black-border", venue.image_url && "-mt-8 relative z-10")}>
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-white truncate">{venue.name}</h3>
-            {venue.city && <p className="text-[11px] text-white-muted truncate">{venue.city}</p>}
+            <h3 className={cn("text-sm font-bold truncate", venue.image_url ? "text-white drop-shadow-lg" : "text-white")}>{venue.name}</h3>
+            {venue.city && <p className={cn("text-[11px] truncate", venue.image_url ? "text-white/70" : "text-white-muted")}>{venue.city}</p>}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className={cn(

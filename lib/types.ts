@@ -515,6 +515,7 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           capacity: number | null
+          image_url: string | null
           created_at: string
         }
         Insert: {
@@ -526,6 +527,7 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           capacity?: number | null
+          image_url?: string | null
           created_at?: string
         }
         Update: {
@@ -537,6 +539,7 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           capacity?: number | null
+          image_url?: string | null
           created_at?: string
         }
         Relationships: []

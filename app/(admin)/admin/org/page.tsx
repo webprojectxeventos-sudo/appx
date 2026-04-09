@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { Building2, MapPin, Plus, Pencil, Trash2, Save, UserPlus, Shield, Mail, Users } from 'lucide-react'
+import { Building2, MapPin, Plus, Pencil, Trash2, Save, UserPlus, Shield, Mail, Users, ImagePlus, X } from 'lucide-react'
+import NextImage from 'next/image'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
 import type { Database } from '@/lib/types'
@@ -27,7 +28,7 @@ export default function OrgPage() {
   const [loading, setLoading] = useState(true)
   const [showVenueForm, setShowVenueForm] = useState(false)
   const [editingVenue, setEditingVenue] = useState<Venue | null>(null)
-  const [venueForm, setVenueForm] = useState({ name: '', address: '', city: '', capacity: '' })
+  const [venueForm, setVenueForm] = useState({ name: '', address: '', city: '', capacity: '', image_url: '' })
 
   // Staff
   const [staff, setStaff] = useState<StaffMember[]>([])
@@ -62,6 +63,7 @@ export default function OrgPage() {
       address: venueForm.address || null,
       city: venueForm.city || null,
       capacity: venueForm.capacity ? parseInt(venueForm.capacity) : null,
+      image_url: venueForm.image_url || null,
       organization_id: organization.id,
     }
     if (editingVenue) {
@@ -82,7 +84,7 @@ export default function OrgPage() {
   const resetVenueForm = () => {
     setShowVenueForm(false)
     setEditingVenue(null)
-    setVenueForm({ name: '', address: '', city: '', capacity: '' })
+    setVenueForm({ name: '', address: '', city: '', capacity: '', image_url: '' })
   }
 
   // Staff
@@ -161,6 +163,26 @@ export default function OrgPage() {
         {showVenueForm && (
           <div className="card p-5 mb-4 space-y-3 border-primary/20">
             <h3 className="font-semibold text-white">{editingVenue ? 'Editar local' : 'Nuevo local'}</h3>
+
+            {/* Image preview + URL */}
+            <div className="space-y-2">
+              <label className="text-xs text-white-muted flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5" /> Foto del local</label>
+              {venueForm.image_url ? (
+                <div className="relative rounded-xl overflow-hidden border border-black-border">
+                  <div className="relative aspect-[16/9]">
+                    <NextImage src={venueForm.image_url} alt="Preview" fill className="object-cover" />
+                  </div>
+                  <button
+                    onClick={() => setVenueForm({ ...venueForm, image_url: '' })}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 border border-white/10 hover:bg-red-500/30 transition-colors"
+                  >
+                    <X className="w-3 h-3 text-white" />
+                  </button>
+                </div>
+              ) : null}
+              <input type="url" placeholder="URL de la foto (pega el enlace de la imagen)" value={venueForm.image_url} onChange={e => setVenueForm({ ...venueForm, image_url: e.target.value })} className={inputClass} />
+            </div>
+
             <input type="text" placeholder="Nombre del local *" value={venueForm.name} onChange={e => setVenueForm({ ...venueForm, name: e.target.value })} className={inputClass} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input type="text" placeholder="Direccion" value={venueForm.address} onChange={e => setVenueForm({ ...venueForm, address: e.target.value })} className={inputClass} />
@@ -176,17 +198,35 @@ export default function OrgPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {venues.map(v => (
-            <div key={v.id} className="card p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
-                <MapPin className="w-5 h-5 text-blue-400" />
+            <div key={v.id} className="card overflow-hidden">
+              {/* Venue image */}
+              {v.image_url ? (
+                <div className="relative aspect-[16/9] bg-black-card">
+                  <NextImage src={v.image_url} alt={v.name} fill className="object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                  <div className="absolute bottom-3 left-3 right-3">
+                    <p className="text-sm font-bold text-white drop-shadow-lg">{v.name}</p>
+                    <p className="text-[11px] text-white/70 drop-shadow">{v.address || v.city || ''}</p>
+                  </div>
+                </div>
+              ) : null}
+              <div className="p-4 flex items-center gap-3">
+                {!v.image_url && (
+                  <>
+                    <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                      <MapPin className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{v.name}</p>
+                      <p className="text-[11px] text-white-muted truncate">{v.address || v.city || 'Sin direccion'}</p>
+                    </div>
+                  </>
+                )}
+                {v.image_url && <div className="flex-1" />}
+                {v.capacity && <span className="text-[10px] text-white-muted bg-white/5 px-2 py-1 rounded-full">{v.capacity} cap.</span>}
+                <button onClick={() => { setEditingVenue(v); setVenueForm({ name: v.name, address: v.address || '', city: v.city || '', capacity: v.capacity?.toString() || '', image_url: v.image_url || '' }); setShowVenueForm(true) }} className="p-1.5 rounded-lg hover:bg-white/5"><Pencil className="w-3.5 h-3.5 text-white-muted" /></button>
+                <button onClick={() => handleDeleteVenue(v.id)} className="p-1.5 rounded-lg hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{v.name}</p>
-                <p className="text-[11px] text-white-muted truncate">{v.address || v.city || 'Sin direccion'}</p>
-              </div>
-              {v.capacity && <span className="text-[10px] text-white-muted bg-white/5 px-2 py-1 rounded-full">{v.capacity} cap.</span>}
-              <button onClick={() => { setEditingVenue(v); setVenueForm({ name: v.name, address: v.address || '', city: v.city || '', capacity: v.capacity?.toString() || '' }); setShowVenueForm(true) }} className="p-1.5 rounded-lg hover:bg-white/5"><Pencil className="w-3.5 h-3.5 text-white-muted" /></button>
-              <button onClick={() => handleDeleteVenue(v.id)} className="p-1.5 rounded-lg hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
             </div>
           ))}
           {venues.length === 0 && (
