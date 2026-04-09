@@ -102,8 +102,12 @@ function BottomNav() {
 }
 
 function AppHeader() {
-  const { signOut, event } = useAuth()
+  const { signOut, event, profile } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const [avatarError, setAvatarError] = useState(false)
+
+  const avatarUrl = profile?.avatar_url
+  const showAvatar = avatarUrl && !avatarError
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/[0.06] glass-panel px-4 py-3 flex items-center justify-between">
@@ -130,10 +134,21 @@ function AppHeader() {
         </button>
         <Link
           href="/profile"
-          className="text-white-muted hover:text-white p-2 rounded-lg transition-colors duration-200 hover:bg-primary/5"
+          className="relative flex items-center justify-center w-8 h-8 rounded-full transition-colors duration-200 hover:ring-2 hover:ring-primary/30 overflow-hidden"
           title="Mi perfil"
         >
-          <User className="w-4.5 h-4.5" />
+          {showAvatar ? (
+            <img
+              src={avatarUrl}
+              alt="Perfil"
+              className="w-full h-full object-cover"
+              onError={() => setAvatarError(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-white/5 text-white-muted hover:text-white">
+              <User className="w-4.5 h-4.5" />
+            </div>
+          )}
         </Link>
         <button
           onClick={signOut}

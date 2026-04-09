@@ -24,6 +24,10 @@ import {
   Ticket,
   Calendar,
   Mail,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Loader2,
 } from 'lucide-react'
 import type { Database } from '@/lib/types'
 
@@ -69,6 +73,11 @@ export default function UsersPage() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
   const [bulkRole, setBulkRole] = useState('')
+  const [passwordTarget, setPasswordTarget] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
@@ -144,6 +153,49 @@ export default function UsersPage() {
     } catch (err) {
       console.error('Error bulk change:', err)
       showError('Error al cambiar roles')
+    }
+  }
+
+  const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter']
+
+  const handleChangePassword = async (userId: string) => {
+    if (!newPassword || newPassword !== confirmPassword) {
+      showError('Las contraseñas no coinciden')
+      return
+    }
+    if (newPassword.length < 6) {
+      showError('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+    setChangingPassword(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        showError('Sesion expirada')
+        return
+      }
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId, newPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al cambiar contraseña')
+        return
+      }
+      success('Contraseña actualizada correctamente')
+      setPasswordTarget(null)
+      setNewPassword('')
+      setConfirmPassword('')
+      setShowPassword(false)
+    } catch {
+      showError('Error de conexion')
+    } finally {
+      setChangingPassword(false)
     }
   }
 
@@ -424,6 +476,81 @@ export default function UsersPage() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Password change — only for staff roles */}
+                    {STAFF_ROLES.includes(u.role) && (
+                      <div className="pt-2 border-t border-black-border">
+                        {passwordTarget === u.id ? (
+                          <div className="space-y-2.5">
+                            <span className="text-xs text-white-muted font-medium flex items-center gap-1.5">
+                              <KeyRound className="w-3.5 h-3.5" />
+                              Cambiar contraseña de {u.full_name || u.email}
+                            </span>
+                            <div className="relative">
+                              <input
+                                type={showPassword ? 'text' : 'password'}
+                                value={newPassword}
+                                onChange={e => setNewPassword(e.target.value)}
+                                placeholder="Nueva contraseña (min. 6 caracteres)"
+                                className="w-full px-3 py-2 pr-10 rounded-lg border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                                autoComplete="new-password"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white-muted hover:text-white"
+                              >
+                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              value={confirmPassword}
+                              onChange={e => setConfirmPassword(e.target.value)}
+                              placeholder="Confirmar contraseña"
+                              className="w-full px-3 py-2 rounded-lg border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                              autoComplete="new-password"
+                            />
+                            {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                              <p className="text-xs text-red-400">Las contraseñas no coinciden</p>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleChangePassword(u.id)}
+                                disabled={changingPassword || !newPassword || newPassword !== confirmPassword || newPassword.length < 6}
+                                className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                              >
+                                {changingPassword && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                {changingPassword ? 'Cambiando...' : 'Guardar contraseña'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPasswordTarget(null)
+                                  setNewPassword('')
+                                  setConfirmPassword('')
+                                  setShowPassword(false)
+                                }}
+                                className="btn-ghost text-xs py-1.5 px-3"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setPasswordTarget(u.id)
+                              setNewPassword('')
+                              setConfirmPassword('')
+                            }}
+                            className="flex items-center gap-1.5 text-xs text-white-muted hover:text-primary transition-colors py-1"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            Cambiar contraseña
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

@@ -77,24 +77,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } })
   }
 
-  // For page routes, check Supabase auth cookie/token
-  // Client-side auth handles redirects, but we add a server-side check
-  // to prevent unauthenticated access to protected page routes
-  const hasSbCookie = Array.from(request.cookies.getAll()).some(
-    c => c.name.startsWith('sb-') && c.name.includes('auth')
-  )
-
-  if (!hasSbCookie && pathname !== '/') {
-    // Redirect to login for protected app routes
-    const protectedPrefixes = [
-      '/home', '/chat', '/gallery', '/polls', '/surveys',
-      '/playlist', '/profile', '/admin', '/scanner', '/promoter',
-    ]
-    if (protectedPrefixes.some(p => pathname === p || pathname.startsWith(p + '/'))) {
-      const loginUrl = new URL('/login', request.url)
-      return NextResponse.redirect(loginUrl)
-    }
-  }
+  // Page-level auth is handled client-side by AuthProvider (redirect to /login when
+  // no session). Server-side cookie checks cause redirect loops because Supabase
+  // writes the auth cookie asynchronously after signInWithPassword — the cookie
+  // isn't available yet when the browser navigates to /home.
 
   // Add security headers to all responses
   const response = NextResponse.next()

@@ -56,7 +56,12 @@ interface Announcement {
 
 export default function HomePage() {
   const { user, profile, event, venue, loading } = useAuth()
-  const heroImage = event?.cover_image_url || venue?.image_url || null
+  const heroImageUrl = event?.cover_image_url || venue?.image_url || null
+  const [heroFailed, setHeroFailed] = useState(false)
+  const heroImage = heroImageUrl && !heroFailed ? heroImageUrl : null
+
+  // Reset error state when the image URL changes (e.g. switching events)
+  useEffect(() => { setHeroFailed(false) }, [heroImageUrl])
   const [countdown, setCountdown] = useState<Countdown>({ days: 0, hours: 0, minutes: 0, seconds: 0 })
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [hasDrinkOrder, setHasDrinkOrder] = useState(false)
@@ -215,7 +220,7 @@ export default function HomePage() {
       <div className="relative rounded-2xl overflow-hidden" style={{ height: '240px' }}>
         {heroImage ? (
           <>
-            <img src={heroImage} alt={event.title} className="absolute inset-0 w-full h-full object-cover" />
+            <img src={heroImage} alt={event.title} className="absolute inset-0 w-full h-full object-cover" onError={() => setHeroFailed(true)} />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-[#0a0a0a]/20" />
           </>
         ) : (

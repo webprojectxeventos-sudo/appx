@@ -113,21 +113,6 @@ function LazyImage({
 // ─── Batch loading: load N photos at a time as user scrolls ───
 const BATCH_SIZE = 20
 
-// Demo photos for testing (removed when real photos exist in DB)
-const DEMO_PHOTOS: Photo[] = [
-  { id: 'demo-1', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'Halloween 2025 — Fiesta', uploaded_by: '', created_at: '2025-11-06T20:21:00Z' },
-  { id: 'demo-2', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Halloween 2025 — Grupo', uploaded_by: '', created_at: '2025-11-06T20:22:00Z' },
-  { id: 'demo-3', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Halloween 2025 — Disfraces', uploaded_by: '', created_at: '2025-11-06T20:23:00Z' },
-  { id: 'demo-4', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:24:00Z' },
-  { id: 'demo-5', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Noche epica', uploaded_by: '', created_at: '2025-11-06T20:25:00Z' },
-  { id: 'demo-6', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:26:00Z' },
-  { id: 'demo-7', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: 'El squad completo', uploaded_by: '', created_at: '2025-11-06T20:27:00Z' },
-  { id: 'demo-8', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:28:00Z' },
-  { id: 'demo-9', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: 'Mejor fiesta del año', uploaded_by: '', created_at: '2025-11-06T20:29:00Z' },
-  { id: 'demo-10', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-01.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:30:00Z' },
-  { id: 'demo-11', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-02.jpeg', caption: 'Graduacion vibes', uploaded_by: '', created_at: '2025-11-06T20:31:00Z' },
-  { id: 'demo-12', event_id: null, venue_id: null, photo_date: null, url: '/photos/halloween-03.jpg', caption: null, uploaded_by: '', created_at: '2025-11-06T20:32:00Z' },
-]
 
 export default function GalleryPage() {
   const { event, venue, loading: authLoading } = useAuth()
@@ -142,7 +127,9 @@ export default function GalleryPage() {
 
   const [dropboxUrl, setDropboxUrl] = useState<string | null>(null)
 
-  // Fetch all photo metadata — venue-scoped if venue exists, else event-scoped (legacy)
+  // Fetch photo metadata — scoped to venue+date (current event) or event_id (legacy)
+  const eventDate = event?.date ?? null
+
   useEffect(() => {
     if (!venue?.id && !event?.id) return
     let cancelled = false
@@ -153,6 +140,11 @@ export default function GalleryPage() {
 
         if (venue?.id) {
           query = query.eq('venue_id', venue.id)
+          // Scope to the current event's date so photos from other events
+          // at the same venue (e.g. Halloween, Christmas) don't leak through
+          if (eventDate) {
+            query = query.eq('photo_date', eventDate)
+          }
         } else {
           query = query.eq('event_id', event!.id)
         }
@@ -162,22 +154,23 @@ export default function GalleryPage() {
         if (!error && data && data.length > 0) {
           const dbxRecord = data.find(p => p.caption === '_dropbox_folder')
           if (dbxRecord) setDropboxUrl(dbxRecord.url)
-          const realPhotos = data.filter(p => p.caption !== '_dropbox_folder')
-          setAllPhotos(realPhotos.length > 0 ? realPhotos : DEMO_PHOTOS)
+          else setDropboxUrl(null)
+          setAllPhotos(data.filter(p => p.caption !== '_dropbox_folder'))
         } else {
-          setAllPhotos(DEMO_PHOTOS)
+          setDropboxUrl(null)
+          setAllPhotos([])
         }
       } catch (err) {
         console.error('Error fetching photos:', err)
         if (cancelled) return
-        setAllPhotos(DEMO_PHOTOS)
+        setAllPhotos([])
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     fetchPhotos()
     return () => { cancelled = true }
-  }, [venue?.id, event?.id])
+  }, [venue?.id, event?.id, eventDate])
 
   // Infinite scroll: load more photos when sentinel is visible
   useEffect(() => {

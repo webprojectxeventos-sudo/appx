@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
@@ -22,6 +21,7 @@ export default function ProfilePage() {
   const [gender, setGender] = useState(profile?.gender || '')
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '')
   const [uploading, setUploading] = useState(false)
+  const [avatarLoadError, setAvatarLoadError] = useState(false)
 
   useEffect(() => {
     if (profile) {
@@ -56,6 +56,7 @@ export default function ProfilePage() {
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       setAvatarUrl(data.publicUrl + '?t=' + Date.now())
+      setAvatarLoadError(false)
     } catch (err) {
       console.error('Upload error:', err)
       showError('Error al subir la imagen')
@@ -177,8 +178,15 @@ export default function ProfilePage() {
       <div className="flex flex-col items-center gap-3">
         <div className="relative">
           <div className="w-24 h-24 rounded-full bg-white/5 border-2 border-gold/30 flex items-center justify-center overflow-hidden">
-            {avatarUrl ? (
-              <Image src={avatarUrl} alt="Avatar" width={96} height={96} className="w-full h-full object-cover" />
+            {avatarUrl && !avatarLoadError ? (
+              <img
+                src={avatarUrl}
+                alt="Avatar"
+                width={96}
+                height={96}
+                className="w-full h-full object-cover"
+                onError={() => setAvatarLoadError(true)}
+              />
             ) : (
               <User className="w-10 h-10 text-white-muted" />
             )}
