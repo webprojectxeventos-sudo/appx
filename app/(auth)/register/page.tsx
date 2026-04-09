@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { CheckCircle2, Check, Mail } from 'lucide-react'
+import { CheckCircle2, Check, Mail, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function RegisterPage() {
@@ -19,6 +19,7 @@ export default function RegisterPage() {
   const [validatedEvent, setValidatedEvent] = useState<{ event_id: string; event_title: string } | null>(null)
   const [privacyAccepted, setPrivacyAccepted] = useState(false)
   const [registered, setRegistered] = useState(false)
+  const [existingUser, setExistingUser] = useState(false)
 
   const formatCode = (value: string): string => {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
@@ -68,6 +69,14 @@ export default function RegisterPage() {
       const { data: recheck } = await supabase.rpc('validate_access_code', { code_text: cleanCode })
       if (!recheck) { setError('Este codigo acaba de ser utilizado por otra persona'); setLoading(false); return }
 
+      // Check if email already exists — if so, redirect to login to join the event
+      const { data: existing } = await supabase.rpc('check_existing_user', { p_email: email })
+      if (existing?.exists) {
+        setExistingUser(true)
+        setLoading(false)
+        return
+      }
+
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -76,7 +85,15 @@ export default function RegisterPage() {
         },
       })
 
-      if (signUpError) { setError(signUpError.message); setLoading(false); return }
+      if (signUpError) {
+        // Fallback: if signUp fails with "already registered", show existing user flow
+        if (signUpError.message.toLowerCase().includes('already') || signUpError.message.toLowerCase().includes('registered')) {
+          setExistingUser(true)
+          setLoading(false)
+          return
+        }
+        setError(signUpError.message); setLoading(false); return
+      }
       if (!authData.user) { setError('Error al crear la cuenta'); setLoading(false); return }
 
       // Si hay sesión → email confirmation está OFF → ir a encuesta de bebidas
@@ -95,6 +112,32 @@ export default function RegisterPage() {
   }
 
   const inputClass = 'w-full px-4 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] text-white placeholder:text-white/25 text-sm focus:outline-none focus:border-primary/50 focus:bg-white/[0.05] transition-all'
+
+  // Pantalla de usuario existente — redirigir a login para unirse al evento
+  if (existingUser && validatedEvent) {
+    const cleanCode = accessCode.replace('-', '')
+    const loginUrl = `/login?join_event=${validatedEvent.event_id}&code=${cleanCode}`
+    return (
+      <div className="space-y-6 text-center">
+        <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto">
+          <ArrowRight className="w-5 h-5 text-blue-400" />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold text-white mb-2">Ya tienes cuenta</h1>
+          <p className="text-sm text-white/40 leading-relaxed">
+            El email <span className="text-white/70">{email}</span> ya esta registrado.
+            Inicia sesion para unirte a <span className="text-white/70">{validatedEvent.event_title}</span>.
+          </p>
+        </div>
+        <Link href={loginUrl} className="btn-primary inline-flex py-3 px-6 text-sm font-semibold gap-2">
+          Iniciar sesion y unirme <ArrowRight className="w-4 h-4" />
+        </Link>
+        <button onClick={() => { setExistingUser(false); setEmail('') }} className="block mx-auto text-xs text-white/30 hover:text-white/50 transition-colors">
+          Usar otro email
+        </button>
+      </div>
+    )
+  }
 
   // Pantalla de éxito tras registro (cuando email confirmation está ON)
   if (registered) {

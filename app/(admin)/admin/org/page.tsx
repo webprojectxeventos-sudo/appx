@@ -36,6 +36,7 @@ export default function OrgPage() {
   const [showCreateStaff, setShowCreateStaff] = useState(false)
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
+  const [newStaffRole, setNewStaffRole] = useState<'scanner' | 'promoter'>('scanner')
   const [creatingStaff, setCreatingStaff] = useState(false)
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export default function OrgPage() {
     setLoading(true)
     const [venueRes, staffRes] = await Promise.all([
       supabase.from('venues').select('*').eq('organization_id', organization.id).order('name'),
-      supabase.from('users').select('id, email, full_name, role, created_at').eq('organization_id', organization.id).in('role', ['scanner', 'admin', 'super_admin']).order('created_at', { ascending: false }),
+      supabase.from('users').select('id, email, full_name, role, created_at').eq('organization_id', organization.id).in('role', ['scanner', 'promoter', 'admin', 'super_admin']).order('created_at', { ascending: false }),
     ])
     setVenues(venueRes.data || [])
     setStaff((staffRes.data || []) as StaffMember[])
@@ -104,11 +105,11 @@ export default function OrgPage() {
         id: authData.user.id,
         email: newEmail,
         full_name: newName || null,
-        role: 'scanner',
+        role: newStaffRole,
         organization_id: organization.id,
       })
       if (profileError) { showError('Error: ' + profileError.message); return }
-      success('Scanner creado')
+      success(newStaffRole === 'promoter' ? 'Promotor creado' : 'Scanner creado')
       setNewEmail('')
       setNewName('')
       setShowCreateStaff(false)
@@ -242,17 +243,21 @@ export default function OrgPage() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-white">Staff</h2>
-          <button onClick={() => setShowCreateStaff(true)} className="btn-primary text-sm"><UserPlus className="w-4 h-4" /> Nuevo scanner</button>
+          <button onClick={() => setShowCreateStaff(true)} className="btn-primary text-sm"><UserPlus className="w-4 h-4" /> Nuevo staff</button>
         </div>
 
         {showCreateStaff && (
           <div className="card p-5 mb-4 space-y-3 border-primary/20">
-            <h3 className="font-semibold text-white">Crear scanner</h3>
+            <h3 className="font-semibold text-white">Crear staff</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setNewStaffRole('scanner')} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${newStaffRole === 'scanner' ? 'border-blue-500/50 bg-blue-500/10 text-blue-400' : 'border-black-border text-white'}`}>Scanner</button>
+              <button onClick={() => setNewStaffRole('promoter')} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${newStaffRole === 'promoter' ? 'border-amber-500/50 bg-amber-500/10 text-amber-400' : 'border-black-border text-white'}`}>Promotor</button>
+            </div>
             <input type="text" placeholder="Nombre (opcional)" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
-            <input type="email" placeholder="Email del scanner" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
+            <input type="email" placeholder="Email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
             <div className="flex gap-2">
               <button onClick={handleCreateScanner} disabled={!newEmail || creatingStaff} className="btn-primary flex-1 py-2.5 text-sm">{creatingStaff ? 'Creando...' : 'Crear'}</button>
-              <button onClick={() => { setShowCreateStaff(false); setNewEmail(''); setNewName('') }} className="btn-ghost px-4 py-2.5 text-sm">Cancelar</button>
+              <button onClick={() => { setShowCreateStaff(false); setNewEmail(''); setNewName(''); setNewStaffRole('scanner') }} className="btn-ghost px-4 py-2.5 text-sm">Cancelar</button>
             </div>
           </div>
         )}
@@ -273,10 +278,10 @@ export default function OrgPage() {
                 <p className="text-sm font-medium text-white truncate">{member.full_name || 'Sin nombre'}</p>
                 <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-white-muted" /><p className="text-[11px] text-white-muted truncate">{member.email}</p></div>
               </div>
-              <span className={`text-[10px] font-medium px-2 py-1 rounded-full ${member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-blue-500/10 text-blue-400'}`}>
-                {member.role === 'super_admin' ? 'Super Admin' : member.role === 'admin' ? 'Admin' : 'Scanner'}
+              <span className={`text-[10px] font-medium px-2 py-1 rounded-full ${member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : member.role === 'promoter' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                {member.role === 'super_admin' ? 'Super Admin' : member.role === 'admin' ? 'Admin' : member.role === 'promoter' ? 'Promotor' : 'Scanner'}
               </span>
-              {member.role === 'scanner' && (
+              {(member.role === 'scanner' || member.role === 'promoter') && (
                 <button onClick={() => handleRemoveStaff(member.id)} className="p-1.5 rounded-lg hover:bg-red-500/10"><Trash2 className="w-4 h-4 text-red-400" /></button>
               )}
             </div>

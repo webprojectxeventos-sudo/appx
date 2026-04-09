@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { PartyPopper } from 'lucide-react'
 
 const translateError = (msg: string): string => {
   const map: Record<string, string> = {
@@ -17,7 +18,6 @@ const translateError = (msg: string): string => {
     'Signups not allowed for this instance': 'El registro no esta permitido',
     'Password should be at least 6 characters': 'La contraseña debe tener al menos 6 caracteres',
   }
-  // Check exact match first, then partial match
   if (map[msg]) return map[msg]
   for (const [key, value] of Object.entries(map)) {
     if (msg.toLowerCase().includes(key.toLowerCase())) return value
@@ -26,11 +26,32 @@ const translateError = (msg: string): string => {
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /></div>}>
+      <LoginContent />
+    </Suspense>
+  )
+}
+
+function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Read join_event params from URL (coming from register page for existing users)
+  const joinEventId = searchParams.get('join_event')
+  const joinCode = searchParams.get('code')
+  const [eventTitle, setEventTitle] = useState<string | null>(null)
+
+  // Fetch event title if joining
+  useEffect(() => {
+    if (!joinEventId) return
+    supabase.from('events').select('title').eq('id', joinEventId).single()
+      .then(({ data }) => { if (data) setEventTitle(data.title) })
+  }, [joinEventId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,12 +59,52 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password })
       if (signInError) {
         setError(translateError(signInError.message))
         setLoading(false)
         return
       }
+
+      const userId = signInData.user?.id
+      if (!userId) { setError('Error inesperado'); setLoading(false); return }
+
+      // If joining a new event via code
+      if (joinEventId && joinCode) {
+        try {
+          // Validate and consume the access code
+          const { data: validated } = await supabase.rpc('validate_access_code', { code_text: joinCode })
+          if (validated) {
+            // Add user to the event
+            await supabase.from('user_events').upsert({
+              user_id: userId,
+              event_id: joinEventId,
+              role: 'attendee',
+            }, { onConflict: 'user_id,event_id' })
+
+            // Switch active event to the new one
+            await supabase.from('users').update({ event_id: joinEventId }).eq('id', userId)
+
+            // Redirect to polls (drink survey for the new event)
+            router.push('/polls')
+            return
+          }
+          // Code invalid (already used) — still join if upsert works, just don't consume code
+          // Try direct upsert (code was already consumed for them in a previous attempt?)
+          await supabase.from('user_events').upsert({
+            user_id: userId,
+            event_id: joinEventId,
+            role: 'attendee',
+          }, { onConflict: 'user_id,event_id' })
+          await supabase.from('users').update({ event_id: joinEventId }).eq('id', userId)
+          router.push('/polls')
+          return
+        } catch {
+          // If join fails, still let them in to their existing event
+          console.error('Error joining event, continuing to home')
+        }
+      }
+
       router.push('/home')
     } catch {
       setError('Error inesperado')
@@ -58,6 +119,19 @@ export default function LoginPage() {
       <div className="text-center">
         <h1 className="text-lg font-semibold text-white">Iniciar sesion</h1>
       </div>
+
+      {/* Join event banner */}
+      {joinEventId && eventTitle && (
+        <div className="flex items-center gap-3 p-3.5 rounded-xl border border-primary/20 bg-primary/[0.04]">
+          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <PartyPopper className="w-4.5 h-4.5 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs text-white/50">Unirte a</p>
+            <p className="text-sm font-medium text-white">{eventTitle}</p>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <input
@@ -98,7 +172,7 @@ export default function LoginPage() {
           disabled={loading}
           className="btn-primary w-full py-3.5 text-sm font-semibold"
         >
-          {loading ? 'Entrando...' : 'Entrar'}
+          {loading ? 'Entrando...' : joinEventId ? 'Entrar y unirme' : 'Entrar'}
         </button>
       </form>
 

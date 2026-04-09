@@ -7,7 +7,7 @@ export type Database = {
           email: string
           full_name: string | null
           avatar_url: string | null
-          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           event_id: string | null
           organization_id: string | null
           gender: 'masculino' | 'femenino' | 'otro' | null
@@ -18,7 +18,7 @@ export type Database = {
           email: string
           full_name?: string | null
           avatar_url?: string | null
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
@@ -29,7 +29,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           avatar_url?: string | null
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
@@ -426,27 +426,30 @@ export type Database = {
           id: string
           user_id: string
           event_id: string
-          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           is_active: boolean
           is_muted: boolean
+          added_by: string | null
           joined_at: string
         }
         Insert: {
           id?: string
           user_id: string
           event_id: string
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           is_active?: boolean
           is_muted?: boolean
+          added_by?: string | null
           joined_at?: string
         }
         Update: {
           id?: string
           user_id?: string
           event_id?: string
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
           is_active?: boolean
           is_muted?: boolean
+          added_by?: string | null
           joined_at?: string
         }
         Relationships: []
@@ -697,6 +700,14 @@ export type Database = {
       get_user_visible_events: {
         Args: { p_user_id: string }
         Returns: string[]
+      }
+      check_existing_user: {
+        Args: { p_email: string }
+        Returns: { exists: boolean }
+      }
+      assign_user_to_event: {
+        Args: { p_user_id: string; p_event_id: string; p_added_by: string | null }
+        Returns: boolean
       }
     }
     Enums: {

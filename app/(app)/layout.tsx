@@ -15,6 +15,7 @@ import {
   User,
   Sun,
   Moon,
+  Megaphone,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
@@ -25,7 +26,7 @@ import { ReactNode, useState, useEffect } from 'react'
 
 function BottomNav() {
   const pathname = usePathname()
-  const { profile, isAdmin, initialized, event } = useAuth()
+  const { profile, isAdmin, isPromoter, initialized, event } = useAuth()
   const [hasSurveys, setHasSurveys] = useState(false)
 
   useEffect(() => {
@@ -61,6 +62,10 @@ function BottomNav() {
     ...(hasSurveys ? [{ href: '/surveys', label: 'Encuestas', icon: BarChart3 }] : []),
     { href: '/playlist', label: 'Playlist', icon: Music2 },
   ]
+
+  if (isPromoter || isAdmin) {
+    navItems.push({ href: '/promoter', label: 'Promotor', icon: Megaphone })
+  }
 
   if (isAdmin) {
     navItems.push({ href: '/admin/dashboard', label: 'Admin', icon: Shield })
@@ -146,7 +151,7 @@ function AppHeader() {
 const FULL_SCREEN_PAGES = ['/chat']
 
 // Pages allowed before completing drink order
-const ALLOWED_BEFORE_SURVEY = ['/polls', '/profile']
+const ALLOWED_BEFORE_SURVEY = ['/polls', '/profile', '/promoter']
 
 function AppLayoutContent({ children }: { children: ReactNode }) {
   const { loading, initialized, user, event, isStaff } = useAuth()

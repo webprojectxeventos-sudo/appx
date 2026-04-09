@@ -30,7 +30,8 @@ interface AuthContextType {
   isSuperAdmin: boolean
   isAdmin: boolean
   isGroupAdmin: boolean
-  isStaff: boolean // super_admin | admin | group_admin | scanner
+  isPromoter: boolean
+  isStaff: boolean // super_admin | admin | group_admin | scanner | promoter
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   switchEvent: (eventId: string) => Promise<void>
@@ -273,13 +274,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isSuperAdmin = role === 'super_admin'
   const isAdmin = role === 'admin' || role === 'super_admin'
   const isGroupAdmin = role === 'group_admin'
-  const isStaff = ['super_admin', 'admin', 'group_admin', 'scanner'].includes(role)
+  const isPromoter = role === 'promoter'
+  const isStaff = ['super_admin', 'admin', 'group_admin', 'scanner', 'promoter'].includes(role)
 
   return (
     <AuthContext.Provider value={{
       user, profile, event, events, venue, organization,
       loading, initialized,
-      isSuperAdmin, isAdmin, isGroupAdmin, isStaff,
+      isSuperAdmin, isAdmin, isGroupAdmin, isPromoter, isStaff,
       signOut, refreshProfile, switchEvent,
     }}>
       {children}
