@@ -79,9 +79,9 @@ export default function RegisterPage() {
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
       if (!authData.user) { setError('Error al crear la cuenta'); setLoading(false); return }
 
-      // Si hay sesión → email confirmation está OFF → entrar directo
+      // Si hay sesión → email confirmation está OFF → ir a encuesta de bebidas
       if (authData.session) {
-        router.push('/home')
+        router.push('/polls')
         return
       }
 

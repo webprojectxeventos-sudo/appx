@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   Home,
   Image as ImageIcon,
@@ -145,9 +145,47 @@ function AppHeader() {
 // Pages that handle their own layout (full-screen, no header/padding)
 const FULL_SCREEN_PAGES = ['/chat']
 
+// Pages allowed before completing drink order
+const ALLOWED_BEFORE_SURVEY = ['/polls', '/profile']
+
 function AppLayoutContent({ children }: { children: ReactNode }) {
-  const { loading, initialized } = useAuth()
+  const { loading, initialized, user, event, isStaff } = useAuth()
   const pathname = usePathname()
+  const router = useRouter()
+  const [surveyChecked, setSurveyChecked] = useState(false)
+  const [needsSurvey, setNeedsSurvey] = useState(false)
+
+  // Check if user has completed drink order (survey)
+  useEffect(() => {
+    if (!initialized || !user?.id || !event?.id || isStaff) {
+      setSurveyChecked(true)
+      return
+    }
+    let cancelled = false
+    const check = async () => {
+      const { count } = await supabase
+        .from('drink_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', event.id)
+        .eq('user_id', user.id)
+      if (cancelled) return
+      const hasOrder = (count || 0) > 0
+      setNeedsSurvey(!hasOrder)
+      setSurveyChecked(true)
+    }
+    check()
+    return () => { cancelled = true }
+  }, [initialized, user?.id, event?.id, isStaff])
+
+  // Redirect to polls if survey not completed
+  useEffect(() => {
+    if (!surveyChecked || !needsSurvey) return
+    const isAllowed = ALLOWED_BEFORE_SURVEY.some(p => pathname === p || pathname.startsWith(p + '/'))
+    if (!isAllowed) {
+      router.replace('/polls')
+    }
+  }, [surveyChecked, needsSurvey, pathname, router])
+
   const isFullScreen = FULL_SCREEN_PAGES.some(
     (p) => pathname === p || pathname.startsWith(p + '/')
   )
