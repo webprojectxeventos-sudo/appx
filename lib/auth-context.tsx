@@ -67,10 +67,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoadingRef.current = true
 
     try {
-      // 1. Load profile
+      // 1. Load profile first (needed to know event_id + organization_id)
       const profileResult = await withTimeout(
         supabase.from('users').select('*').eq('id', authUser.id).single().then(r => r) as Promise<{ data: UserProfile | null; error: { message: string } | null }>,
-        8000,
+        5000,
         'loadProfile'
       )
 
@@ -82,78 +82,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const profileData = profileResult.data
       setProfile(profileData)
 
-      // 2. Load active event (from users.event_id — backward compat)
-      if (profileData.event_id) {
-        const eventResult = await withTimeout(
-          supabase.from('events').select('*').eq('id', profileData.event_id).single().then(r => r) as Promise<{ data: Event | null; error: { message: string } | null }>,
-          8000,
-          'loadEvent'
-        )
-        const eventData = eventResult.data || null
-        setEvent(eventData)
+      // 2. Run ALL secondary queries in parallel
+      const promises: Promise<void>[] = []
 
-        // 2b. Load venue of active event
+      // 2a. Load active event + venue (chained but independent of org/memberships)
+      const eventVenuePromise = (async () => {
+        if (!profileData.event_id) { setEvent(null); setVenue(null); return }
+        const { data: eventData } = await supabase.from('events').select('*').eq('id', profileData.event_id).single()
+        setEvent(eventData || null)
         if (eventData?.venue_id) {
-          const venueResult = await withTimeout(
-            supabase.from('venues').select('*').eq('id', eventData.venue_id).single().then(r => r) as Promise<{ data: Venue | null; error: { message: string } | null }>,
-            8000,
-            'loadVenue'
-          )
-          setVenue(venueResult.data || null)
+          const { data: venueData } = await supabase.from('venues').select('*').eq('id', eventData.venue_id).single()
+          setVenue(venueData || null)
         } else {
           setVenue(null)
         }
-      } else {
-        setEvent(null)
-        setVenue(null)
-      }
+      })()
+      promises.push(eventVenuePromise)
 
-      // 3. Load organization (if user has one)
-      if (profileData.organization_id) {
-        const orgResult = await withTimeout(
-          supabase.from('organizations').select('*').eq('id', profileData.organization_id).single().then(r => r) as Promise<{ data: Organization | null; error: { message: string } | null }>,
-          8000,
-          'loadOrg'
-        )
-        setOrganization(orgResult.data || null)
-      } else {
-        setOrganization(null)
-      }
+      // 2b. Load organization
+      const orgPromise = (async () => {
+        if (!profileData.organization_id) { setOrganization(null); return }
+        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profileData.organization_id).single()
+        setOrganization(orgData || null)
+      })()
+      promises.push(orgPromise)
 
-      // 4. Load all event memberships (from user_events)
-      const { data: memberships } = await supabase
-        .from('user_events')
-        .select('event_id, role, is_active')
-        .eq('user_id', authUser.id)
-        .eq('is_active', true)
+      // 2c. Load all event memberships
+      const membershipsPromise = (async () => {
+        const { data: memberships } = await supabase
+          .from('user_events')
+          .select('event_id, role, is_active')
+          .eq('user_id', authUser.id)
+          .eq('is_active', true)
+        if (memberships && memberships.length > 0) {
+          const eventIds = memberships.map(m => m.event_id)
+          const { data: eventsData } = await supabase.from('events').select('*').in('id', eventIds)
+          const eventsMap: Record<string, Event> = {}
+          eventsData?.forEach(e => { eventsMap[e.id] = e })
+          setEvents(memberships.filter(m => eventsMap[m.event_id]).map(m => ({
+            event_id: m.event_id, role: m.role, is_active: m.is_active, event: eventsMap[m.event_id],
+          })))
+        } else {
+          setEvents([])
+        }
+      })()
+      promises.push(membershipsPromise)
 
-      if (memberships && memberships.length > 0) {
-        const eventIds = memberships.map(m => m.event_id)
-        const { data: eventsData } = await supabase
-          .from('events')
-          .select('*')
-          .in('id', eventIds)
-
-        const eventsMap: Record<string, Event> = {}
-        eventsData?.forEach(e => { eventsMap[e.id] = e })
-
-        const enriched: UserEventMembership[] = memberships
-          .filter(m => eventsMap[m.event_id])
-          .map(m => ({
-            event_id: m.event_id,
-            role: m.role,
-            is_active: m.is_active,
-            event: eventsMap[m.event_id],
-          }))
-
-        setEvents(enriched)
-      } else {
-        setEvents([])
-      }
+      // Wait for ALL parallel queries (timeout 5s total)
+      await withTimeout(Promise.all(promises), 5000, 'loadSecondaryData')
 
       loadedUserId.current = authUser.id
 
-      // Auto-subscribe to push notifications (fire-and-forget)
+      // Auto-subscribe to push notifications (fire-and-forget, no await)
       if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) {
         import('@/lib/notifications').then(({ subscribeToPush }) => {
           subscribeToPush(authUser.id).catch(() => {})
@@ -189,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession(),
-          10000,
+          5000,
           'getSession'
         )
 
