@@ -17,12 +17,14 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   const { user, profile, loading, initialized, isSuperAdmin, isAdmin } = useAuth()
 
   useEffect(() => {
-    if (!initialized || loading) return
+    if (!initialized) return
     if (!user) { router.push('/login'); return }
-    if (!isAdmin) { router.push('/home') }
+    // Wait for profile to determine role (loading=false means profile is ready)
+    if (!loading && !isAdmin) { router.push('/home') }
   }, [user, isAdmin, initialized, loading, router])
 
-  if (!initialized || loading || !user || !isAdmin) {
+  // Brief splash during session check + profile load (needed for role check)
+  if (!initialized || !user || loading || !isAdmin) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
         <div className="text-center animate-fade-in">

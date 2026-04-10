@@ -180,7 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
 
+        // Set user + initialized BEFORE profile loads — layouts can render immediately.
+        // `loading` stays true until profile is ready. Pages handle their own loading states.
         setUser(session.user)
+        setInitialized(true)
+
         const success = await loadUserData(session.user)
 
         // Retry once on failure (covers cold start where first query wakes the DB)
@@ -195,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         if (!cancelled) {
           setLoading(false)
-          setInitialized(true)
+          setInitialized(true) // Ensure initialized on all code paths
         }
       }
     }

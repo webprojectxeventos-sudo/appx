@@ -52,7 +52,7 @@ export default function ChatPage() {
   const [activeTab, setActiveTab] = useState<ChatTab>('private')
   const [messages, setMessages] = useState<MessageWithData[]>([])
   const [inputValue, setInputValue] = useState('')
-  const [isSending, setIsSending] = useState(false)
+  // isSending removed — optimistic send makes it unnecessary
   const [isLoadingMessages, setIsLoadingMessages] = useState(true)
   const [showReactionsFor, setShowReactionsFor] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
@@ -284,11 +284,33 @@ export default function ChatPage() {
         },
         (payload) => {
           const newMsg = payload.new as Message
+
+          // Own message: replace optimistic temp message with real DB message
+          if (newMsg.user_id === user?.id) {
+            setMessages(prev => {
+              if (prev.some(m => m.id === newMsg.id)) return prev // Already exists
+              // Find matching temp message (same content, temp- prefix)
+              const tempIdx = prev.findIndex(m =>
+                m.id.startsWith('temp-') && m.content === newMsg.content
+              )
+              if (tempIdx !== -1) {
+                // Swap temp with real (preserves position in list)
+                const updated = [...prev]
+                updated[tempIdx] = { ...newMsg, sender_name: prev[tempIdx].sender_name, reactions: [] }
+                return updated
+              }
+              // No temp found — add normally (e.g. sent from another device)
+              const name = nameCache.current[newMsg.user_id] ?? profile?.full_name ?? null
+              return [...prev, { ...newMsg, sender_name: name, reactions: [] }]
+            })
+            return
+          }
+
+          // Other user's message
           const cachedName = nameCache.current[newMsg.user_id]
           if (cachedName !== undefined) {
             setMessages(prev => [...prev, { ...newMsg, sender_name: cachedName, reactions: [] }])
           } else {
-            // Fetch unknown sender name, then append message
             supabase.from('users').select('id, full_name').eq('id', newMsg.user_id).single().then(({ data }) => {
               const name = data?.full_name || null
               nameCache.current[newMsg.user_id] = name
@@ -358,7 +380,7 @@ export default function ChatPage() {
 
   const handleSendMessage = async () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || !user?.id || isSending || cooldownLeft > 0) return
+    if (!trimmed || !user?.id || cooldownLeft > 0) return
     if (activeTab === 'private' && !event?.id) return
     if (activeTab === 'general' && !venue?.id) return
 
@@ -382,39 +404,40 @@ export default function ChatPage() {
       return
     }
 
-    setIsSending(true)
-    try {
-      const filteredContent = filterProfanity(trimmed)
+    const filteredContent = filterProfanity(trimmed)
+    const tempId = `temp-${crypto.randomUUID()}`
 
-      const insertData = activeTab === 'private'
-        ? {
-            content: filteredContent,
-            user_id: user.id,
-            event_id: event!.id,
-            is_announcement: false,
-            is_general: false,
-          }
-        : {
-            content: filteredContent,
-            user_id: user.id,
-            venue_id: venue!.id,
-            is_announcement: false,
-            is_general: true,
-          }
+    // --- Optimistic: add message + clear input immediately ---
+    const optimisticMsg: MessageWithData = {
+      id: tempId,
+      content: filteredContent,
+      user_id: user.id,
+      event_id: activeTab === 'private' ? event!.id : null,
+      venue_id: activeTab === 'general' ? venue!.id : null,
+      is_announcement: false,
+      is_general: activeTab === 'general',
+      is_pinned: false,
+      created_at: new Date().toISOString(),
+      sender_name: profile?.full_name || null,
+      reactions: [],
+    }
 
-      const { error } = await supabase.from('messages').insert(insertData)
+    setMessages(prev => [...prev, optimisticMsg])
+    setInputValue('')
+    lastSentContent.current = trimmed.toLowerCase()
+    sentTimestamps.current.push(now)
+    startCooldown(COOLDOWN_MS)
 
-      if (error) {
-        console.error('Error sending message:', error)
-        return
-      }
+    // --- Background insert — user already sees the message ---
+    const insertData = activeTab === 'private'
+      ? { content: filteredContent, user_id: user.id, event_id: event!.id, is_announcement: false, is_general: false }
+      : { content: filteredContent, user_id: user.id, venue_id: venue!.id, is_announcement: false, is_general: true }
 
-      setInputValue('')
-      lastSentContent.current = trimmed.toLowerCase()
-      sentTimestamps.current.push(now)
-      startCooldown(COOLDOWN_MS)
-    } finally {
-      setIsSending(false)
+    const { error } = await supabase.from('messages').insert(insertData)
+    if (error) {
+      // Rollback optimistic message
+      setMessages(prev => prev.filter(m => m.id !== tempId))
+      console.error('Error sending message:', error)
     }
   }
 
@@ -470,7 +493,9 @@ export default function ChatPage() {
     }
   }
 
-  if (authLoading) {
+  // Show skeleton while auth loads OR event data is still arriving from background
+  const eventStillLoading = !authLoading && !event && !!profile?.event_id
+  if (authLoading || eventStillLoading) {
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0a]">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-black-border">
@@ -882,7 +907,7 @@ export default function ChatPage() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value.slice(0, MAX_MSG_LENGTH + 50))}
               onKeyDown={handleKeyDown}
-              disabled={isSending}
+              disabled={cooldownLeft > 0}
               maxLength={MAX_MSG_LENGTH + 50}
               className="w-full px-4 py-2.5 text-[14px] text-white placeholder:text-gray-600 bg-transparent focus:outline-none"
               style={{ caretColor: '#E41E2B' }}
@@ -890,7 +915,7 @@ export default function ChatPage() {
           </div>
           <button
             onClick={handleSendMessage}
-            disabled={!inputValue.trim() || isSending || cooldownLeft > 0 || inputValue.length > MAX_MSG_LENGTH}
+            disabled={!inputValue.trim() || cooldownLeft > 0 || inputValue.length > MAX_MSG_LENGTH}
             className={cn(
               'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
               cooldownLeft > 0

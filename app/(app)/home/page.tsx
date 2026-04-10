@@ -223,7 +223,9 @@ export default function HomePage() {
     return `${Math.floor(h / 24)}d`
   }
 
-  if (loading) {
+  // Show skeleton while auth loads OR event data is still arriving from background
+  const eventStillLoading = !loading && !event && !!profile?.event_id
+  if (loading || eventStillLoading) {
     return (
       <div className="space-y-5 animate-fade-in">
         <div className="rounded-2xl bg-black-card animate-pulse" style={{ height: '200px' }} />

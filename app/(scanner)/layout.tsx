@@ -11,17 +11,13 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const { user, profile, loading, initialized, isStaff } = useAuth()
 
   useEffect(() => {
-    if (!initialized || loading) return
-    if (!user || !profile) {
-      router.push('/login')
-      return
-    }
-    if (!isStaff) {
-      router.push('/home')
-    }
+    if (!initialized) return
+    if (!user) { router.push('/login'); return }
+    // Wait for profile to determine role
+    if (!loading && (!profile || !isStaff)) { router.push('/home') }
   }, [user, profile, initialized, loading, isStaff, router])
 
-  if (!initialized || loading) {
+  if (!initialized || !user || loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
         <div className="text-center animate-fade-in">

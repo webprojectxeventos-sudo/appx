@@ -176,11 +176,12 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   const [needsSurvey, setNeedsSurvey] = useState(false)
 
   // Auth guard — redirect to login if not authenticated
+  // No need to wait for `loading` — we know user exists as soon as session is checked
   useEffect(() => {
-    if (initialized && !loading && !user) {
+    if (initialized && !user) {
       router.replace('/login')
     }
-  }, [initialized, loading, user, router])
+  }, [initialized, user, router])
 
   // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {
@@ -223,8 +224,10 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     (p) => pathname === p || pathname.startsWith(p + '/')
   )
 
-  // Show loading while auth initializes or user data loads
-  if (!initialized || loading || !user) {
+  // Brief splash only during initial session check (~200ms).
+  // Once initialized + user exists, render layout immediately — profile/event load in background.
+  // Individual pages handle their own loading skeletons for secondary data.
+  if (!initialized || !user) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
         <div className="text-center animate-fade-in">
