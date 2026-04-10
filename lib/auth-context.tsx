@@ -52,13 +52,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadedUserId = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
 
+  // Load secondary data in background — non-blocking, non-fatal
+  // Each query sets state independently as it resolves
+  const loadSecondaryData = useCallback((userId: string, profileData: UserProfile) => {
+    // Event + Venue chain
+    ;(async () => {
+      try {
+        if (!profileData.event_id) { setEvent(null); setVenue(null); return }
+        const { data: eventData } = await supabase.from('events').select('*').eq('id', profileData.event_id).single()
+        setEvent(eventData || null)
+        if (eventData?.venue_id) {
+          const { data: venueData } = await supabase.from('venues').select('*').eq('id', eventData.venue_id).single()
+          setVenue(venueData || null)
+        } else { setVenue(null) }
+      } catch (err) { console.warn('[Auth] Event/venue load failed (non-fatal):', err) }
+    })()
+
+    // Organization
+    ;(async () => {
+      try {
+        if (!profileData.organization_id) { setOrganization(null); return }
+        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profileData.organization_id).single()
+        setOrganization(orgData || null)
+      } catch (err) { console.warn('[Auth] Org load failed (non-fatal):', err) }
+    })()
+
+    // Event memberships
+    ;(async () => {
+      try {
+        const { data: memberships } = await supabase
+          .from('user_events')
+          .select('event_id, role, is_active')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+        if (memberships && memberships.length > 0) {
+          const eventIds = memberships.map(m => m.event_id)
+          const { data: eventsData } = await supabase.from('events').select('*').in('id', eventIds)
+          const eventsMap: Record<string, Event> = {}
+          eventsData?.forEach(e => { eventsMap[e.id] = e })
+          setEvents(memberships.filter(m => eventsMap[m.event_id]).map(m => ({
+            event_id: m.event_id, role: m.role, is_active: m.is_active, event: eventsMap[m.event_id],
+          })))
+        } else { setEvents([]) }
+      } catch (err) { console.warn('[Auth] Memberships load failed (non-fatal):', err) }
+    })()
+
+    // Push notifications (fire-and-forget)
+    if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) {
+      import('@/lib/notifications').then(({ subscribeToPush }) => {
+        subscribeToPush(userId).catch(() => {})
+      }).catch(() => {})
+    }
+  }, [])
+
   const loadUserData = useCallback(async (authUser: User): Promise<boolean> => {
     if (loadedUserId.current === authUser.id) return true
     if (isLoadingRef.current) return false
     isLoadingRef.current = true
 
     try {
-      // 1. Load profile — NO timeout (Supabase cold start can take 10-15s on free tier)
+      // Load profile — this is the ONLY blocking query.
+      // Once profile is loaded, loading=false can be set immediately.
+      // Secondary data (event, venue, org) loads in background.
       const { data: profileData, error: profileError } = await supabase
         .from('users')
         .select('*')
@@ -71,60 +126,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(profileData)
-
-      // 2. Run ALL secondary queries in parallel — NO timeout, non-fatal
-      const promises: Promise<void>[] = []
-
-      promises.push((async () => {
-        if (!profileData.event_id) { setEvent(null); setVenue(null); return }
-        const { data: eventData } = await supabase.from('events').select('*').eq('id', profileData.event_id).single()
-        setEvent(eventData || null)
-        if (eventData?.venue_id) {
-          const { data: venueData } = await supabase.from('venues').select('*').eq('id', eventData.venue_id).single()
-          setVenue(venueData || null)
-        } else {
-          setVenue(null)
-        }
-      })())
-
-      promises.push((async () => {
-        if (!profileData.organization_id) { setOrganization(null); return }
-        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', profileData.organization_id).single()
-        setOrganization(orgData || null)
-      })())
-
-      promises.push((async () => {
-        const { data: memberships } = await supabase
-          .from('user_events')
-          .select('event_id, role, is_active')
-          .eq('user_id', authUser.id)
-          .eq('is_active', true)
-        if (memberships && memberships.length > 0) {
-          const eventIds = memberships.map(m => m.event_id)
-          const { data: eventsData } = await supabase.from('events').select('*').in('id', eventIds)
-          const eventsMap: Record<string, Event> = {}
-          eventsData?.forEach(e => { eventsMap[e.id] = e })
-          setEvents(memberships.filter(m => eventsMap[m.event_id]).map(m => ({
-            event_id: m.event_id, role: m.role, is_active: m.is_active, event: eventsMap[m.event_id],
-          })))
-        } else {
-          setEvents([])
-        }
-      })())
-
-      // Secondary data failure is non-fatal — app works without event/venue/org
-      try { await Promise.all(promises) } catch (err) {
-        console.warn('[Auth] Secondary data partially failed (non-fatal):', err)
-      }
-
       loadedUserId.current = authUser.id
 
-      // Auto-subscribe to push notifications (fire-and-forget)
-      if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) {
-        import('@/lib/notifications').then(({ subscribeToPush }) => {
-          subscribeToPush(authUser.id).catch(() => {})
-        }).catch(() => {})
-      }
+      // Fire secondary data loads in background — they set state as they resolve
+      // If any hang or fail, the app still works (role checks only need profile)
+      loadSecondaryData(authUser.id, profileData)
 
       return true
     } catch (err) {
@@ -133,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       isLoadingRef.current = false
     }
-  }, [])
+  }, [loadSecondaryData])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
