@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { Building2, MapPin, Plus, Pencil, Trash2, Save, UserPlus, Shield, Mail, Users, ImagePlus, X } from 'lucide-react'
+import { Building2, MapPin, Plus, Pencil, Trash2, Save, UserPlus, Shield, Mail, Users, ImagePlus, X, Eye, EyeOff, KeyRound } from 'lucide-react'
 import NextImage from 'next/image'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
@@ -36,8 +36,15 @@ export default function OrgPage() {
   const [showCreateStaff, setShowCreateStaff] = useState(false)
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
-  const [newStaffRole, setNewStaffRole] = useState<'scanner' | 'promoter'>('scanner')
+  const [newStaffRole, setNewStaffRole] = useState<string>('scanner')
+  const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [creatingStaff, setCreatingStaff] = useState(false)
+  // Change password
+  const [changingPasswordFor, setChangingPasswordFor] = useState<string | null>(null)
+  const [changePassword, setChangePassword] = useState('')
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
 
   useEffect(() => {
     if (!organization?.id) return
@@ -88,37 +95,55 @@ export default function OrgPage() {
     setVenueForm({ name: '', address: '', city: '', capacity: '', image_url: '' })
   }
 
-  // Staff
-  const handleCreateScanner = async () => {
-    if (!newEmail || !organization?.id) return
+  // Staff — uses /api/admin/create-user (admin.createUser, no confirmation email)
+  const handleCreateStaffMember = async () => {
+    if (!newEmail || !newPassword || !organization?.id) return
+    if (newPassword.length < 6) { showError('La contraseña debe tener al menos 6 caracteres'); return }
     setCreatingStaff(true)
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newEmail,
-        password: crypto.randomUUID().slice(0, 12),
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          email: newEmail,
+          password: newPassword,
+          fullName: newName || undefined,
+          role: newStaffRole,
+        }),
       })
-      if (authError || !authData.user) {
-        showError('Error: ' + (authError?.message || 'Error desconocido'))
-        return
-      }
-      const { error: profileError } = await supabase.from('users').insert({
-        id: authData.user.id,
-        email: newEmail,
-        full_name: newName || null,
-        role: newStaffRole,
-        organization_id: organization.id,
-      })
-      if (profileError) { showError('Error: ' + profileError.message); return }
-      success(newStaffRole === 'promoter' ? 'Promotor creado' : 'Scanner creado')
-      setNewEmail('')
-      setNewName('')
-      setShowCreateStaff(false)
+      const data = await res.json()
+      if (!res.ok) { showError(data.error || 'Error al crear usuario'); return }
+      const roleLabels: Record<string, string> = { scanner: 'Scanner', promoter: 'Promotor', admin: 'Admin', group_admin: 'Group Admin', super_admin: 'Super Admin' }
+      success(`${roleLabels[newStaffRole] || newStaffRole} creado correctamente`)
+      setNewEmail(''); setNewName(''); setNewPassword(''); setShowCreateStaff(false)
       fetchData()
-    } catch (err) {
-      showError('Error al crear scanner')
-    } finally {
-      setCreatingStaff(false)
-    }
+    } catch { showError('Error al crear usuario') }
+    finally { setCreatingStaff(false) }
+  }
+
+  const handleChangePassword = async (userId: string) => {
+    if (!changePassword || changePassword.length < 6) { showError('Mínimo 6 caracteres'); return }
+    setSavingPassword(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ userId, newPassword: changePassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) { showError(data.error || 'Error'); return }
+      success('Contraseña cambiada')
+      setChangingPasswordFor(null); setChangePassword('')
+    } catch { showError('Error al cambiar contraseña') }
+    finally { setSavingPassword(false) }
   }
 
   const handleRemoveStaff = async (userId: string) => {
@@ -249,15 +274,48 @@ export default function OrgPage() {
         {showCreateStaff && (
           <div className="card p-5 mb-4 space-y-3 border-primary/20">
             <h3 className="font-semibold text-white">Crear staff</h3>
-            <div className="flex gap-2">
-              <button onClick={() => setNewStaffRole('scanner')} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${newStaffRole === 'scanner' ? 'border-blue-500/50 bg-blue-500/10 text-blue-400' : 'border-black-border text-white'}`}>Scanner</button>
-              <button onClick={() => setNewStaffRole('promoter')} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${newStaffRole === 'promoter' ? 'border-amber-500/50 bg-amber-500/10 text-amber-400' : 'border-black-border text-white'}`}>Promotor</button>
+            {/* Role selector */}
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+              {[
+                { value: 'scanner', label: 'Scanner', color: 'blue' },
+                { value: 'promoter', label: 'Promotor', color: 'amber' },
+                { value: 'admin', label: 'Admin', color: 'primary' },
+                { value: 'group_admin', label: 'Group Admin', color: 'violet' },
+                { value: 'super_admin', label: 'Super Admin', color: 'amber' },
+              ].map(r => {
+                const active = newStaffRole === r.value
+                const colorMap: Record<string, string> = {
+                  blue: active ? 'border-blue-500/50 bg-blue-500/10 text-blue-400' : '',
+                  amber: active ? 'border-amber-500/50 bg-amber-500/10 text-amber-400' : '',
+                  primary: active ? 'border-primary/50 bg-primary/10 text-primary' : '',
+                  violet: active ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : '',
+                }
+                return (
+                  <button key={r.value} onClick={() => setNewStaffRole(r.value)} className={`py-2 rounded-xl text-xs font-medium border transition-all ${active ? colorMap[r.color] : 'border-black-border text-white-muted hover:text-white'}`}>
+                    {r.label}
+                  </button>
+                )
+              })}
             </div>
             <input type="text" placeholder="Nombre (opcional)" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
-            <input type="email" placeholder="Email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
+            <input type="email" placeholder="Email (puede ser inventado)" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
+            {/* Password field */}
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                placeholder="Contraseña (mín. 6 caracteres)"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                className={inputClass}
+              />
+              <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white-muted hover:text-white p-1">
+                {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-white-muted -mt-1">El usuario podrá entrar directamente con este email y contraseña. No se envía email de confirmación.</p>
             <div className="flex gap-2">
-              <button onClick={handleCreateScanner} disabled={!newEmail || creatingStaff} className="btn-primary flex-1 py-2.5 text-sm">{creatingStaff ? 'Creando...' : 'Crear'}</button>
-              <button onClick={() => { setShowCreateStaff(false); setNewEmail(''); setNewName(''); setNewStaffRole('scanner') }} className="btn-ghost px-4 py-2.5 text-sm">Cancelar</button>
+              <button onClick={handleCreateStaffMember} disabled={!newEmail || !newPassword || newPassword.length < 6 || creatingStaff} className="btn-primary flex-1 py-2.5 text-sm">{creatingStaff ? 'Creando...' : 'Crear'}</button>
+              <button onClick={() => { setShowCreateStaff(false); setNewEmail(''); setNewName(''); setNewPassword(''); setNewStaffRole('scanner') }} className="btn-ghost px-4 py-2.5 text-sm">Cancelar</button>
             </div>
           </div>
         )}
@@ -269,23 +327,62 @@ export default function OrgPage() {
             if (!staffSearch.trim()) return true
             const q = staffSearch.toLowerCase()
             return (m.full_name || '').toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
-          }).map(member => (
-            <div key={member.id} className="card p-4 flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${member.role === 'super_admin' || member.role === 'admin' ? 'bg-primary/15' : 'bg-blue-500/15'}`}>
-                <Shield className={`w-5 h-5 ${member.role === 'super_admin' || member.role === 'admin' ? 'text-primary' : 'text-blue-400'}`} />
+          }).map(member => {
+            const roleLabel: Record<string, string> = { super_admin: 'Super Admin', admin: 'Admin', group_admin: 'Group Admin', promoter: 'Promotor', scanner: 'Scanner' }
+            const roleColor = member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : member.role === 'group_admin' ? 'bg-violet-500/10 text-violet-400' : member.role === 'promoter' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'
+            const iconColor = member.role === 'super_admin' || member.role === 'admin' ? 'text-primary' : member.role === 'group_admin' ? 'text-violet-400' : 'text-blue-400'
+            const isChangingPw = changingPasswordFor === member.id
+
+            return (
+              <div key={member.id} className="card overflow-hidden">
+                <div className="p-4 flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${member.role === 'super_admin' || member.role === 'admin' ? 'bg-primary/15' : member.role === 'group_admin' ? 'bg-violet-500/15' : 'bg-blue-500/15'}`}>
+                    <Shield className={`w-5 h-5 ${iconColor}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{member.full_name || 'Sin nombre'}</p>
+                    <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-white-muted" /><p className="text-[11px] text-white-muted truncate">{member.email}</p></div>
+                  </div>
+                  <span className={`text-[10px] font-medium px-2 py-1 rounded-full ${roleColor}`}>
+                    {roleLabel[member.role] || member.role}
+                  </span>
+                  <button onClick={() => { setChangingPasswordFor(isChangingPw ? null : member.id); setChangePassword('') }} className="p-1.5 rounded-lg hover:bg-white/5" title="Cambiar contraseña">
+                    <KeyRound className={`w-4 h-4 ${isChangingPw ? 'text-primary' : 'text-white-muted'}`} />
+                  </button>
+                  {member.id !== user?.id && (
+                    <button onClick={() => handleRemoveStaff(member.id)} className="p-1.5 rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-4 h-4 text-red-400" /></button>
+                  )}
+                </div>
+                {/* Inline change password */}
+                {isChangingPw && (
+                  <div className="px-4 pb-4 flex items-center gap-2 border-t border-white/5 pt-3">
+                    <div className="relative flex-1">
+                      <input
+                        type={showChangePassword ? 'text' : 'password'}
+                        placeholder="Nueva contraseña (mín. 6)"
+                        value={changePassword}
+                        onChange={e => setChangePassword(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                      />
+                      <button type="button" onClick={() => setShowChangePassword(!showChangePassword)} className="absolute right-2 top-1/2 -translate-y-1/2 text-white-muted hover:text-white p-0.5">
+                        {showChangePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleChangePassword(member.id)}
+                      disabled={!changePassword || changePassword.length < 6 || savingPassword}
+                      className="btn-primary text-xs px-3 py-2 rounded-lg"
+                    >
+                      {savingPassword ? '...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => { setChangingPasswordFor(null); setChangePassword('') }} className="text-white-muted hover:text-white text-xs px-2 py-2">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{member.full_name || 'Sin nombre'}</p>
-                <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-white-muted" /><p className="text-[11px] text-white-muted truncate">{member.email}</p></div>
-              </div>
-              <span className={`text-[10px] font-medium px-2 py-1 rounded-full ${member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : member.role === 'promoter' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                {member.role === 'super_admin' ? 'Super Admin' : member.role === 'admin' ? 'Admin' : member.role === 'promoter' ? 'Promotor' : 'Scanner'}
-              </span>
-              {(member.role === 'scanner' || member.role === 'promoter') && (
-                <button onClick={() => handleRemoveStaff(member.id)} className="p-1.5 rounded-lg hover:bg-red-500/10"><Trash2 className="w-4 h-4 text-red-400" /></button>
-              )}
-            </div>
-          ))}
+            )
+          })}
           {staff.length === 0 && (
             <div className="card p-8 text-center">
               <Users className="w-8 h-8 text-white-muted mx-auto mb-2" />
