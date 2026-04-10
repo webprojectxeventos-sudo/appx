@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { authFetch } from '@/lib/auth-fetch'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
 import {
@@ -118,23 +119,15 @@ export default function PromoterPage() {
     if (!selectedEventId || !user?.id) return
     setAssigningId(targetUserId)
     try {
-      const { data: { session: s } } = await supabase.auth.getSession()
-      const res = await fetch('/api/promoter/assign-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}),
-        },
-        body: JSON.stringify({ userId: targetUserId, eventId: selectedEventId, addedBy: user.id }),
-      })
+      const res = await authFetch('/api/promoter/assign-user', { userId: targetUserId, eventId: selectedEventId, addedBy: user.id })
       const data = await res.json()
       if (!res.ok) { showError(data.error || 'Error'); return }
       success('Usuario asignado al evento')
       // Update local state
       setSearchResults(prev => prev.map(u => u.id === targetUserId ? { ...u, isInEvent: true } : u))
       setStats(prev => ({ ...prev, total: prev.total + 1, byMe: prev.byMe + 1 }))
-    } catch {
-      showError('Error al asignar')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error al asignar')
     } finally {
       setAssigningId(null)
     }
@@ -146,22 +139,14 @@ export default function PromoterPage() {
     if (!newName || !newEmail || !selectedEventId || !user?.id) return
     setCreating(true)
     try {
-      const { data: { session: s } } = await supabase.auth.getSession()
-      const res = await fetch('/api/promoter/create-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {}),
-        },
-        body: JSON.stringify({
+      const res = await authFetch('/api/promoter/create-user', {
           email: newEmail,
           fullName: newName,
           gender: newGender || null,
           eventId: selectedEventId,
           addedBy: user.id,
           organizationId: organization?.id || null,
-        }),
-      })
+        })
       const data = await res.json()
       if (!res.ok) { showError(data.error || 'Error'); return }
       success(data.alreadyExisted ? 'Usuario existente asignado al evento' : 'Usuario creado y asignado')
@@ -170,8 +155,8 @@ export default function PromoterPage() {
       setNewGender('')
       setShowCreate(false)
       setStats(prev => ({ ...prev, total: prev.total + 1, byMe: prev.byMe + 1 }))
-    } catch {
-      showError('Error al crear usuario')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error al crear usuario')
     } finally {
       setCreating(false)
     }

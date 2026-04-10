@@ -4,6 +4,7 @@ import React, { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
@@ -70,5 +71,9 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
 }
 
 export default function ScannerLayout({ children }: { children: ReactNode }) {
-  return <ScannerLayoutContent>{children}</ScannerLayoutContent>
+  return (
+    <ErrorBoundary>
+      <ScannerLayoutContent>{children}</ScannerLayoutContent>
+    </ErrorBoundary>
+  )
 }

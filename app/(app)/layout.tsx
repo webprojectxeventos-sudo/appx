@@ -23,6 +23,7 @@ import { ToastProvider } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { ReactNode, useState, useEffect } from 'react'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 function BottomNav() {
   const pathname = usePathname()
@@ -262,12 +263,14 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <div className="flex flex-col min-h-screen bg-background text-foreground">
-          <AppLayoutContent>{children}</AppLayoutContent>
-        </div>
-      </ToastProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ToastProvider>
+          <div className="flex flex-col min-h-screen bg-background text-foreground">
+            <AppLayoutContent>{children}</AppLayoutContent>
+          </div>
+        </ToastProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }

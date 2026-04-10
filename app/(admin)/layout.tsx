@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { ArrowLeft, Calendar, MessageCircle, LayoutDashboard, Building2, AlertTriangle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { AdminSelectionProvider } from '@/lib/admin-context'
 import { ToastProvider } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
@@ -125,10 +126,12 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <AdminSelectionProvider>
-      <ToastProvider>
-        <AdminLayoutContent>{children}</AdminLayoutContent>
-      </ToastProvider>
-    </AdminSelectionProvider>
+    <ErrorBoundary>
+      <AdminSelectionProvider>
+        <ToastProvider>
+          <AdminLayoutContent>{children}</AdminLayoutContent>
+        </ToastProvider>
+      </AdminSelectionProvider>
+    </ErrorBoundary>
   )
 }

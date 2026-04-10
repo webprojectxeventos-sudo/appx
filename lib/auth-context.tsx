@@ -111,14 +111,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoadingRef.current = true
 
     try {
-      // Load profile — this is the ONLY blocking query.
+      // Load profile — this is the ONLY blocking query (15s timeout).
       // Once profile is loaded, loading=false can be set immediately.
       // Secondary data (event, venue, org) loads in background.
-      const { data: profileData, error: profileError } = await supabase
+      const profilePromise = supabase
         .from('users')
         .select('*')
         .eq('id', authUser.id)
         .single()
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile query timeout (15s)')), 15_000)
+      )
+
+      const { data: profileData, error: profileError } = await Promise.race([
+        profilePromise,
+        timeoutPromise,
+      ])
 
       if (profileError || !profileData) {
         console.error('[Auth] Could not load profile:', profileError?.message)

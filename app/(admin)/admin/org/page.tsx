@@ -7,6 +7,7 @@ import { Building2, MapPin, Plus, Pencil, Trash2, Save, UserPlus, Shield, Mail, 
 import NextImage from 'next/image'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
+import { authFetch } from '@/lib/auth-fetch'
 import type { Database } from '@/lib/types'
 
 type Venue = Database['public']['Tables']['venues']['Row']
@@ -101,19 +102,11 @@ export default function OrgPage() {
     if (newPassword.length < 6) { showError('La contraseña debe tener al menos 6 caracteres'); return }
     setCreatingStaff(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/admin/create-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({
-          email: newEmail,
-          password: newPassword,
-          fullName: newName || undefined,
-          role: newStaffRole,
-        }),
+      const res = await authFetch('/api/admin/create-user', {
+        email: newEmail,
+        password: newPassword,
+        fullName: newName || undefined,
+        role: newStaffRole,
       })
       const data = await res.json()
       if (!res.ok) { showError(data.error || 'Error al crear usuario'); return }
@@ -121,7 +114,7 @@ export default function OrgPage() {
       success(`${roleLabels[newStaffRole] || newStaffRole} creado correctamente`)
       setNewEmail(''); setNewName(''); setNewPassword(''); setShowCreateStaff(false)
       fetchData()
-    } catch { showError('Error al crear usuario') }
+    } catch (err) { showError(err instanceof Error ? err.message : 'Error al crear usuario') }
     finally { setCreatingStaff(false) }
   }
 
@@ -129,20 +122,12 @@ export default function OrgPage() {
     if (!changePassword || changePassword.length < 6) { showError('Mínimo 6 caracteres'); return }
     setSavingPassword(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/admin/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ userId, newPassword: changePassword }),
-      })
+      const res = await authFetch('/api/admin/change-password', { userId, newPassword: changePassword })
       const data = await res.json()
       if (!res.ok) { showError(data.error || 'Error'); return }
       success('Contraseña cambiada')
       setChangingPasswordFor(null); setChangePassword('')
-    } catch { showError('Error al cambiar contraseña') }
+    } catch (err) { showError(err instanceof Error ? err.message : 'Error al cambiar contraseña') }
     finally { setSavingPassword(false) }
   }
 

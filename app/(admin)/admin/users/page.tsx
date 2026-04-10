@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { authFetch } from '@/lib/auth-fetch'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
@@ -182,19 +183,7 @@ export default function UsersPage() {
     }
     setChangingPassword(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        showError('Sesion expirada')
-        return
-      }
-      const res = await fetch('/api/admin/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ userId, newPassword }),
-      })
+      const res = await authFetch('/api/admin/change-password', { userId, newPassword })
       const data = await res.json()
       if (!res.ok) {
         showError(data.error || 'Error al cambiar contraseña')
@@ -205,8 +194,8 @@ export default function UsersPage() {
       setNewPassword('')
       setConfirmPassword('')
       setShowPassword(false)
-    } catch {
-      showError('Error de conexion')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
     } finally {
       setChangingPassword(false)
     }
@@ -255,25 +244,13 @@ export default function UsersPage() {
     }
     setCreatingUser(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        showError('Sesion expirada')
-        return
-      }
-      const res = await fetch('/api/admin/create-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
+      const res = await authFetch('/api/admin/create-user', {
           email: createEmail,
           password: createPassword,
           fullName: createName,
           role: createRole,
           gender: createGender || null,
-        }),
-      })
+        })
       const data = await res.json()
       if (!res.ok) {
         showError(data.error || 'Error al crear usuario')
@@ -282,8 +259,8 @@ export default function UsersPage() {
       success(`Usuario ${createEmail} creado correctamente`)
       resetCreateModal()
       await fetchUsers()
-    } catch {
-      showError('Error de conexion')
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
     } finally {
       setCreatingUser(false)
     }

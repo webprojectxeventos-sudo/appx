@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
+import { authFetch } from '@/lib/auth-fetch'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
@@ -191,14 +192,7 @@ export default function CommsPage() {
 
       if (sendPush) {
         try {
-          const { data: { session } } = await supabase.auth.getSession()
-          if (session?.access_token) {
-            await fetch('/api/push', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-              body: JSON.stringify({ title: 'Anuncio', body: message.trim().slice(0, 200), url: '/chat', event_ids: selectedEventIds }),
-            })
-          }
+          await authFetch('/api/push', { title: 'Anuncio', body: message.trim().slice(0, 200), url: '/chat', event_ids: selectedEventIds })
         } catch {}
       }
 

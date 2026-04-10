@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
+import { authFetch } from '@/lib/auth-fetch'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
 import { Wine, GlassWater, AlertTriangle, CheckCircle2, Pencil } from 'lucide-react'
@@ -157,21 +158,13 @@ export default function DrinksPage() {
         if (ticketQr) {
           setQrCode(ticketQr as string)
           // Send QR ticket email
-          const { data: { session: currentSession } } = await supabase.auth.getSession()
-          fetch('/api/send-ticket', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(currentSession?.access_token ? { Authorization: `Bearer ${currentSession.access_token}` } : {}),
-            },
-            body: JSON.stringify({
+          authFetch('/api/send-ticket', {
               to: profile?.email || user.email,
               userName: profile?.full_name || '',
               eventTitle: event.title,
-              qrCode: ticketQr,
+              qrCode: ticketQr as string,
               eventDate: event.date || null,
               venueName: venue?.name || null,
-            }),
           }).catch(() => {})
         }
       }
