@@ -14,17 +14,18 @@ import { cn } from '@/lib/utils'
 function AdminLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const { user, profile, loading, initialized, isSuperAdmin, isAdmin } = useAuth()
+  const { user, profile, loading, initialized, isSuperAdmin, isAdmin, isGroupAdmin } = useAuth()
+  const canAccessAdmin = isAdmin || isGroupAdmin
 
   useEffect(() => {
     if (!initialized) return
     if (!user) { router.push('/login'); return }
     // Wait for profile to determine role (loading=false means profile is ready)
-    if (!loading && !isAdmin) { router.push('/home') }
-  }, [user, isAdmin, initialized, loading, router])
+    if (!loading && !canAccessAdmin) { router.push('/home') }
+  }, [user, canAccessAdmin, initialized, loading, router])
 
   // Brief splash during session check + profile load (needed for role check)
-  if (!initialized || !user || loading || !isAdmin) {
+  if (!initialized || !user || loading || !canAccessAdmin) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
         <div className="text-center animate-fade-in">
@@ -39,18 +40,31 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     )
   }
 
-  const baseNavItems = [
+  // group_admin: Dashboard + Comms only (scoped to their events)
+  // admin: Dashboard + Events + Comms + Incidents
+  // super_admin: all of the above + Organization
+  const groupAdminNavItems = [
+    { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
+    { href: '/admin/comms', label: 'Comunicacion', icon: MessageCircle },
+  ]
+
+  const adminNavItems = [
     { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
     { href: '/admin/events', label: 'Eventos', icon: Calendar },
     { href: '/admin/comms', label: 'Comunicacion', icon: MessageCircle },
     { href: '/admin/incidents', label: 'Incidencias', icon: AlertTriangle },
   ]
 
-  const superAdminItems = [
+  const superAdminNavItems = [
+    ...adminNavItems,
     { href: '/admin/org', label: 'Organizacion', icon: Building2 },
   ]
 
-  const navItems = isSuperAdmin ? [...baseNavItems, ...superAdminItems] : baseNavItems
+  const navItems = isSuperAdmin
+    ? superAdminNavItems
+    : isAdmin
+      ? adminNavItems
+      : groupAdminNavItems
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/')
 

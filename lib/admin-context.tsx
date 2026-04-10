@@ -34,7 +34,7 @@ interface AdminSelectionContextType {
 const AdminSelectionContext = createContext<AdminSelectionContextType | undefined>(undefined)
 
 export function AdminSelectionProvider({ children }: { children: ReactNode }) {
-  const { user, organization, isSuperAdmin } = useAuth()
+  const { user, organization, isSuperAdmin, isGroupAdmin, events: userEvents } = useAuth()
 
   const [allOrgEvents, setAllOrgEvents] = useState<Event[]>([])
   const [allVenues, setAllVenues] = useState<Venue[]>([])
@@ -48,14 +48,26 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
     if (!user) return
     setLoading(true)
     try {
-      // Fetch events
-      let evQuery = supabase.from('events').select('*').order('date', { ascending: false })
-      if (isSuperAdmin && organization?.id) {
-        evQuery = evQuery.eq('organization_id', organization.id)
+      // Fetch events — scoped by role:
+      //   super_admin: all org events
+      //   group_admin: only events they're assigned to via user_events
+      //   admin: events they created
+      let evData: Event[] | null = null
+      if (isGroupAdmin && userEvents.length > 0) {
+        // group_admin: use their event memberships (already loaded in auth context)
+        evData = userEvents.map(m => m.event).sort((a, b) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        )
       } else {
-        evQuery = evQuery.eq('created_by', user.id)
+        let evQuery = supabase.from('events').select('*').order('date', { ascending: false })
+        if (isSuperAdmin && organization?.id) {
+          evQuery = evQuery.eq('organization_id', organization.id)
+        } else {
+          evQuery = evQuery.eq('created_by', user.id)
+        }
+        const { data } = await evQuery
+        evData = data
       }
-      const { data: evData } = await evQuery
 
       // Fetch venues
       let vnQuery = supabase.from('venues').select('*').order('name')
@@ -87,7 +99,7 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [user?.id, organization?.id, isSuperAdmin])
+  }, [user?.id, organization?.id, isSuperAdmin, isGroupAdmin, userEvents])
 
   // Initial load on mount
   useEffect(() => {

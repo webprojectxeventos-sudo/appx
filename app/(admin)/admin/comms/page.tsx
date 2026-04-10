@@ -35,7 +35,7 @@ function formatDateStr(dateStr: string): string {
 }
 
 export default function CommsPage() {
-  const { user, organization, isSuperAdmin, isAdmin, initialized } = useAuth()
+  const { user, organization, isSuperAdmin, isAdmin, isGroupAdmin, initialized } = useAuth()
   const { allVenues } = useAdminSelection()
   const { error: showError, success } = useToast()
 
@@ -68,12 +68,21 @@ export default function CommsPage() {
   const userCacheRef = useRef<Record<string, { name: string; avatar: string | null }>>({})
   const modTotalPages = Math.ceil(modTotal / PAGE_SIZE)
 
-  // Fetch events
+  // Fetch events — scoped by role
+  const { events: userEvents } = useAuth()
   useEffect(() => {
-    if (!user || !organization?.id) return
-    const fetch = async () => {
+    if (!user) return
+    const fetchEv = async () => {
+      if (isGroupAdmin && userEvents.length > 0) {
+        const sorted = userEvents.map(m => m.event).sort((a, b) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )
+        setAllEvents(sorted)
+        return
+      }
+      if (!organization?.id) return
       let query = supabase.from('events').select('*').order('date', { ascending: true })
-      if (isSuperAdmin && organization.id) {
+      if (isSuperAdmin) {
         query = query.eq('organization_id', organization.id)
       } else {
         query = query.eq('created_by', user.id)
@@ -81,8 +90,8 @@ export default function CommsPage() {
       const { data } = await query
       setAllEvents(data || [])
     }
-    fetch()
-  }, [user?.id, organization?.id, isSuperAdmin])
+    fetchEv()
+  }, [user?.id, organization?.id, isSuperAdmin, isGroupAdmin, userEvents])
 
   // Fetch templates & broadcast history
   useEffect(() => {
@@ -242,7 +251,7 @@ export default function CommsPage() {
   const inputClass = 'w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors'
 
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
-  if (!isAdmin) return null
+  if (!isAdmin && !isGroupAdmin) return null
 
   return (
     <div className="space-y-6 animate-fade-in">

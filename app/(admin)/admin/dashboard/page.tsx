@@ -38,7 +38,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function DashboardPage() {
-  const { user, organization, isAdmin, isSuperAdmin, initialized } = useAuth()
+  const { user, organization, isAdmin, isSuperAdmin, isGroupAdmin, initialized, events: userEvents } = useAuth()
   const { allVenues } = useAdminSelection()
 
   // Local state for inline selection
@@ -50,12 +50,21 @@ export default function DashboardPage() {
   const [feed, setFeed] = useState<LiveEntry[]>([])
   const feedRef = useRef<HTMLDivElement>(null)
 
-  // Fetch events
+  // Fetch events — scoped by role
   useEffect(() => {
-    if (!user || !organization?.id) return
+    if (!user) return
     const fetchEvents = async () => {
+      if (isGroupAdmin && userEvents.length > 0) {
+        // group_admin: use their assigned events from auth context
+        const sorted = userEvents.map(m => m.event).sort((a, b) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )
+        setAllEvents(sorted)
+        return
+      }
+      if (!organization?.id) return
       let query = supabase.from('events').select('*').order('date', { ascending: true })
-      if (isSuperAdmin && organization.id) {
+      if (isSuperAdmin) {
         query = query.eq('organization_id', organization.id)
       } else {
         query = query.eq('created_by', user.id)
@@ -64,7 +73,7 @@ export default function DashboardPage() {
       setAllEvents(data || [])
     }
     fetchEvents()
-  }, [user?.id, organization?.id, isSuperAdmin])
+  }, [user?.id, organization?.id, isSuperAdmin, isGroupAdmin, userEvents])
 
   // Derived: unique dates
   const dates = useMemo(() => [...new Set(allEvents.map(e => formatDate(e.date)))].sort(), [allEvents])
@@ -197,7 +206,7 @@ export default function DashboardPage() {
   }
 
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
-  if (!isAdmin) return null
+  if (!isAdmin && !isGroupAdmin) return null
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -289,8 +298,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Live Feed */}
-          {isSuperAdmin && (
+          {/* Live Feed — visible to all admin roles */}
+          {(isAdmin || isGroupAdmin) && (
             <div>
               <h2 className="text-base font-bold text-white mb-3">Feed en tiempo real</h2>
               <div ref={feedRef} className="card max-h-[300px] overflow-y-auto scrollbar-none divide-y divide-black-border">
