@@ -35,8 +35,20 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
     )
   }
 
+  // While redirect is pending, keep showing spinner (not null flash)
   if (!user || !profile || !isStaff) {
-    return null
+    return (
+      <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
+        <div className="text-center animate-fade-in">
+          <Image src="/logo.png" alt="Project X" width={48} height={48} className="rounded-xl mx-auto mb-4" priority />
+          <div className="flex items-center gap-1.5 justify-center">
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }} />
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }} />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
