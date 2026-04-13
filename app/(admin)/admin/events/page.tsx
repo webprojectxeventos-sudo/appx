@@ -153,7 +153,7 @@ export default function EventsPage() {
   }, [allVenues, displayVenues])
 
   // Handle new session creation — actually insert placeholder events for each venue
-  const handleSessionCreated = async (date: string, venueIds: string[]) => {
+  const handleSessionCreated = async (date: string, venueIds: string[], time: string) => {
     setSelectedDate(date)
     if (venueIds.length > 0 && user?.id && organization?.id) {
       // Check which venues already have events on this date
@@ -164,6 +164,7 @@ export default function EventsPage() {
           .filter(Boolean)
       )
       const newVenueIds = venueIds.filter(id => !existingVenueIds.has(id))
+      const dateTime = `${date}T${time || '22:00'}:00`
 
       if (newVenueIds.length > 0) {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -178,7 +179,7 @@ export default function EventsPage() {
           return {
             title: v?.name || 'Nuevo evento',
             group_name: v?.name || 'Nuevo evento',
-            date: date + 'T00:00:00',
+            date: dateTime,
             venue_id: venueId,
             event_type: 'fiesta' as const,
             event_code: genCode(),

@@ -42,7 +42,7 @@ export function BatchAddModal({
     const rows = names.map(name => ({
       title: name,
       group_name: name,
-      date: date + 'T00:00:00',
+      date: date.includes('T') ? date : date + 'T22:00:00',
       venue_id: venueId,
       event_type: eventType,
       event_code: generateEventCode(),

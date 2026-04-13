@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, CalendarPlus, Check } from 'lucide-react'
+import { X, CalendarPlus, Check, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/types'
 
@@ -12,7 +12,7 @@ interface NewSessionModalProps {
   onClose: () => void
   allVenues: Venue[]
   existingDates: string[]
-  onCreated: (date: string, venueIds: string[]) => void
+  onCreated: (date: string, venueIds: string[], time: string) => void
 }
 
 export function NewSessionModal({ open, onClose, allVenues, existingDates, onCreated }: NewSessionModalProps) {
@@ -24,6 +24,7 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
   }
 
   const [date, setDate] = useState(getNextSaturday)
+  const [time, setTime] = useState('22:00')
   const [selectedVenueIds, setSelectedVenueIds] = useState<Set<string>>(new Set())
 
   const dateExists = existingDates.includes(date)
@@ -39,7 +40,7 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
 
   const handleSubmit = () => {
     if (!date) return
-    onCreated(date, Array.from(selectedVenueIds))
+    onCreated(date, Array.from(selectedVenueIds), time)
     setSelectedVenueIds(new Set())
     onClose()
   }
@@ -61,19 +62,33 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
         </div>
 
         <div className="p-4 space-y-4">
-          {/* Date picker */}
-          <div>
-            <label className="block text-sm font-medium text-white-muted mb-1.5">Fecha</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white text-sm focus:outline-none focus:border-primary/40 transition-colors"
-            />
-            {dateExists && (
-              <p className="text-xs text-amber-400 mt-1.5">Esta fecha ya tiene eventos — se añadirán los venues seleccionados</p>
-            )}
+          {/* Date + Time row */}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-white-muted mb-1.5">Fecha</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white text-sm focus:outline-none focus:border-primary/40 transition-colors"
+              />
+            </div>
+            <div className="w-[120px]">
+              <label className="block text-sm font-medium text-white-muted mb-1.5">
+                <Clock className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+                Hora
+              </label>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="w-full px-3 py-3 rounded-xl border border-black-border bg-transparent text-white text-sm focus:outline-none focus:border-primary/40 transition-colors"
+              />
+            </div>
           </div>
+          {dateExists && (
+            <p className="text-xs text-amber-400 -mt-2">Esta fecha ya tiene eventos — se añadirán los venues seleccionados</p>
+          )}
 
           {/* Venue selection */}
           <div>
