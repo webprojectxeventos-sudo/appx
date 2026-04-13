@@ -3,10 +3,16 @@ import nodemailer from 'nodemailer'
 
 export async function POST(req: Request) {
   try {
-    // Verify authentication via middleware header
-    const userId = req.headers.get('x-user-id')
+    // Try middleware header first, fallback to JWT decode
+    let userId = req.headers.get('x-user-id')
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const auth = req.headers.get('Authorization')
+      if (auth?.startsWith('Bearer ')) {
+        try { const p = JSON.parse(atob(auth.slice(7).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); if (p.exp * 1000 > Date.now()) userId = p.sub } catch {}
+      }
+    }
+    if (!userId) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     const { to, userName, eventTitle, qrCode, eventDate, venueName } = await req.json()

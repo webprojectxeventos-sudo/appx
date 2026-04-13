@@ -359,20 +359,27 @@ export default function UsersPage() {
     const ids = Array.from(selectedUsers).filter(id => id !== user?.id)
     let deleted = 0
     let failed = 0
+    let lastError = ''
     for (const userId of ids) {
       try {
         const res = await authFetch('/api/admin/delete-user', {
           userId,
           mode: 'delete_user',
         })
-        if (res.ok) deleted++
-        else failed++
-      } catch {
+        if (res.ok) {
+          deleted++
+        } else {
+          failed++
+          const data = await res.json().catch(() => ({}))
+          lastError = data.error || `HTTP ${res.status}`
+        }
+      } catch (err) {
         failed++
+        lastError = err instanceof Error ? err.message : 'Error de conexion'
       }
     }
     if (deleted > 0) success(`${deleted} usuario${deleted > 1 ? 's' : ''} eliminado${deleted > 1 ? 's' : ''}`)
-    if (failed > 0) showError(`${failed} no se pudieron eliminar`)
+    if (failed > 0) showError(`${failed} no se pudieron eliminar: ${lastError}`)
     setSelectedUsers(new Set())
     setBulkDeleteMode(false)
     setDeleting(false)

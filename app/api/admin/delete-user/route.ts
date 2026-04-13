@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getCallerId } from '@/lib/api-auth'
 
 const ADMIN_ROLES = ['super_admin', 'admin']
 
 export async function POST(request: NextRequest) {
   try {
-    const callerId = request.headers.get('x-user-id')
+    const callerId = getCallerId(request)
     if (!callerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'No autenticado — inicia sesion de nuevo' }, { status: 401 })
     }
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL

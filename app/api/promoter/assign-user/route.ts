@@ -10,10 +10,16 @@ function getSupabaseAdmin() {
 
 export async function POST(req: Request) {
   try {
-    // Auth verified by middleware — x-user-id header set
-    const callerId = req.headers.get('x-user-id')
+    // Try middleware header first, fallback to JWT decode
+    let callerId = req.headers.get('x-user-id')
     if (!callerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const auth = req.headers.get('Authorization')
+      if (auth?.startsWith('Bearer ')) {
+        try { const p = JSON.parse(atob(auth.slice(7).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); if (p.exp * 1000 > Date.now()) callerId = p.sub } catch {}
+      }
+    }
+    if (!callerId) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     const { userId, eventId, addedBy } = await req.json()
