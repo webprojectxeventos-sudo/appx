@@ -164,7 +164,8 @@ export default function EventsPage() {
           .filter(Boolean)
       )
       const newVenueIds = venueIds.filter(id => !existingVenueIds.has(id))
-      const dateTime = `${date}T${time || '22:00'}:00`
+      // Convert local time to UTC ISO — prevents timezone shift in timestamptz columns
+      const dateTime = new Date(`${date}T${time || '22:00'}:00`).toISOString()
 
       if (newVenueIds.length > 0) {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'

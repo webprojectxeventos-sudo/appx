@@ -55,10 +55,12 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
       prevEventIdRef.current = event?.id
       setActiveTab('attendees')
       setEditingTime(false)
-      // Extract time from event.date (e.g. "2026-04-24T22:00:00")
+      // Extract LOCAL time from event.date (handles UTC→local conversion)
       if (event?.date) {
-        const match = event.date.match(/T(\d{2}:\d{2})/)
-        setTimeValue(match ? match[1] : '22:00')
+        const d = new Date(event.date)
+        const hh = String(d.getHours()).padStart(2, '0')
+        const mm = String(d.getMinutes()).padStart(2, '0')
+        setTimeValue(`${hh}:${mm}`)
       }
     }
   }, [event?.id, event?.date])
@@ -81,9 +83,11 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
 
   const handleSaveTime = async () => {
     if (!event) return
-    // Build new date string preserving the date part
-    const datePart = event.date.split('T')[0]
-    const newDate = `${datePart}T${timeValue}:00`
+    // Preserve the original local date, update only the time
+    const orig = new Date(event.date)
+    const [hh, mm] = timeValue.split(':').map(Number)
+    orig.setHours(hh, mm, 0, 0)
+    const newDate = orig.toISOString()
 
     const { error } = await supabase
       .from('events')
@@ -104,8 +108,11 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
     ? new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
     : ''
 
-  // Current time display from event.date
-  const currentTime = event.date.match(/T(\d{2}:\d{2})/)?.[1] || '00:00'
+  // Current time display from event.date (local timezone)
+  const currentTime = (() => {
+    const d = new Date(event.date)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })()
 
   const drawerContent = (
     <>
