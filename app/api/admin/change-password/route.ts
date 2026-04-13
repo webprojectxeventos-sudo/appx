@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const STAFF_ROLES = ['admin', 'group_admin', 'scanner', 'promoter', 'super_admin']
-
 export async function POST(request: NextRequest) {
   try {
     // x-user-id injected by proxy after token verification
@@ -15,8 +13,9 @@ export async function POST(request: NextRequest) {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-    if (!url || !anonKey) {
-      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+    if (!url || !serviceKey || !anonKey) {
+      console.error('[change-password] Missing env vars:', { url: !!url, serviceKey: !!serviceKey, anonKey: !!anonKey })
+      return NextResponse.json({ error: 'Configuracion del servidor incompleta — revisa las variables de entorno' }, { status: 500 })
     }
 
     // Use anon key client to verify the caller is super_admin
@@ -52,7 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
     }
 
-    // Verify the target user belongs to the same org and has a staff role
+    // Verify the target user belongs to the same org
     const { data: targetUser } = await supabaseUser
       .from('users')
       .select('role, organization_id')
@@ -65,21 +64,6 @@ export async function POST(request: NextRequest) {
 
     if (targetUser.organization_id !== callerProfile.organization_id) {
       return NextResponse.json({ error: 'User belongs to a different organization' }, { status: 403 })
-    }
-
-    if (!STAFF_ROLES.includes(targetUser.role)) {
-      return NextResponse.json(
-        { error: 'Can only change passwords for staff users (admin, group_admin, scanner, promoter, super_admin)' },
-        { status: 403 }
-      )
-    }
-
-    // Use service role key for admin password change
-    if (!serviceKey) {
-      return NextResponse.json(
-        { error: 'Service role key not configured — cannot update auth passwords' },
-        { status: 503 }
-      )
     }
 
     const supabaseAdmin = createClient(url, serviceKey)

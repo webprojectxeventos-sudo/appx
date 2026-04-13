@@ -99,8 +99,9 @@ export default function UsersPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
 
-  // Delete confirmation
+  // Delete confirmation (single or bulk)
   const [deleteTarget, setDeleteTarget] = useState<UserWithEvents | null>(null)
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // Create user modal
@@ -327,7 +328,7 @@ export default function UsersPage() {
     }
   }
 
-  // Delete user
+  // Delete user (single)
   const handleDeleteUser = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -349,6 +350,33 @@ export default function UsersPage() {
     } finally {
       setDeleting(false)
     }
+  }
+
+  // Delete users (bulk)
+  const handleBulkDelete = async () => {
+    if (selectedUsers.size === 0) return
+    setDeleting(true)
+    const ids = Array.from(selectedUsers).filter(id => id !== user?.id)
+    let deleted = 0
+    let failed = 0
+    for (const userId of ids) {
+      try {
+        const res = await authFetch('/api/admin/delete-user', {
+          userId,
+          mode: 'delete_user',
+        })
+        if (res.ok) deleted++
+        else failed++
+      } catch {
+        failed++
+      }
+    }
+    if (deleted > 0) success(`${deleted} usuario${deleted > 1 ? 's' : ''} eliminado${deleted > 1 ? 's' : ''}`)
+    if (failed > 0) showError(`${failed} no se pudieron eliminar`)
+    setSelectedUsers(new Set())
+    setBulkDeleteMode(false)
+    setDeleting(false)
+    await fetchUsers()
   }
 
   // Password change
@@ -604,7 +632,7 @@ export default function UsersPage() {
 
       {/* Bulk Actions */}
       {selectedUsers.size > 0 && (
-        <div className="flex items-center gap-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
+        <div className="flex items-center gap-3 p-3 rounded-xl border border-primary/20 bg-primary/5 flex-wrap">
           <span className="text-sm text-primary font-medium">{selectedUsers.size} seleccionados</span>
           <select
             value={bulkRole}
@@ -621,7 +649,14 @@ export default function UsersPage() {
               Aplicar
             </button>
           )}
-          <button onClick={() => setSelectedUsers(new Set())} className="btn-ghost text-xs py-1.5 px-3">
+          <button
+            onClick={() => setBulkDeleteMode(true)}
+            className="flex items-center gap-1.5 text-xs py-1.5 px-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Eliminar seleccionados
+          </button>
+          <button onClick={() => setSelectedUsers(new Set())} className="btn-ghost text-xs py-1.5 px-3 ml-auto">
             Cancelar
           </button>
         </div>
@@ -972,7 +1007,7 @@ export default function UsersPage() {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal (single) */}
       {deleteTarget && (
         <>
           <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)} />
@@ -1003,6 +1038,47 @@ export default function UsersPage() {
                 >
                   {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
                   {deleting ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {bulkDeleteMode && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setBulkDeleteMode(false)} />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-background border border-red-500/20 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="p-5 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-6 h-6 text-red-400" />
+                </div>
+                <h3 className="text-base font-bold text-white">Eliminar {selectedUsers.size} usuarios</h3>
+                <p className="text-sm text-white-muted">
+                  Se eliminaran permanentemente <span className="text-white font-medium">{selectedUsers.has(user?.id || '') ? selectedUsers.size - 1 : selectedUsers.size} usuarios</span> y todos sus datos asociados (tickets, pedidos, mensajes, votos).
+                  {selectedUsers.has(user?.id || '') && (
+                    <span className="block mt-1 text-yellow-400 text-xs">Tu cuenta sera excluida de la eliminacion.</span>
+                  )}
+                </p>
+                <p className="text-xs text-red-400/80">Esta accion no se puede deshacer.</p>
+              </div>
+              <div className="flex gap-3 p-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => setBulkDeleteMode(false)}
+                  disabled={deleting}
+                  className="btn-ghost flex-1 text-sm py-2.5"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={deleting}
+                  className="flex-1 py-2.5 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {deleting ? 'Eliminando...' : `Eliminar ${selectedUsers.has(user?.id || '') ? selectedUsers.size - 1 : selectedUsers.size}`}
                 </button>
               </div>
             </div>
