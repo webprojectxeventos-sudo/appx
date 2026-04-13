@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
+import { useAuth } from '@/lib/auth-context'
+import { Pagination } from '@/components/admin/pagination'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -16,6 +18,7 @@ import {
   Pencil,
   Trash2,
   UserMinus,
+  UserPlus,
   Check,
   X,
   Loader2,
@@ -53,16 +56,20 @@ const ROLE_OPTIONS = [
   { key: 'admin', label: 'Admin' },
 ]
 
+const PAGE_SIZE = 50
+
 interface AttendeesTabProps {
   eventId: string
 }
 
 export function AttendeesTab({ eventId }: AttendeesTabProps) {
   const { error: showError, success } = useToast()
+  const { user } = useAuth()
   const [attendees, setAttendees] = useState<Attendee[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [page, setPage] = useState(1)
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -74,16 +81,45 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
   const [confirmAction, setConfirmAction] = useState<{ userId: string; mode: 'remove' | 'delete' } | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Add user modal
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [addSearch, setAddSearch] = useState('')
+  const [addResults, setAddResults] = useState<UserRow[]>([])
+  const [addSearching, setAddSearching] = useState(false)
+  const [addingUserId, setAddingUserId] = useState<string | null>(null)
+
+  // Batch fetch users for .in() queries with >100 IDs
+  const batchFetchUsers = async (ids: string[]): Promise<UserRow[]> => {
+    const BATCH = 80
+    const results: UserRow[] = []
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const { data } = await supabase.from('users').select('*').in('id', ids.slice(i, i + BATCH))
+      if (data) results.push(...data)
+    }
+    return results
+  }
+
+  const batchFetchTickets = async (userIds: string[], evtId: string): Promise<TicketRow[]> => {
+    const BATCH = 80
+    const results: TicketRow[] = []
+    for (let i = 0; i < userIds.length; i += BATCH) {
+      const { data } = await supabase.from('tickets').select('*').eq('event_id', evtId).in('user_id', userIds.slice(i, i + BATCH))
+      if (data) results.push(...data)
+    }
+    return results
+  }
+
   const fetchAttendees = useCallback(async () => {
     setLoading(true)
     try {
-      // Get all memberships for this event
+      // Get all memberships for this event (no limit)
       const { data: memberships, error: memError } = await supabase
         .from('user_events')
         .select('*')
         .eq('event_id', eventId)
         .eq('is_active', true)
         .order('joined_at', { ascending: false })
+        .limit(5000)
 
       if (memError) throw memError
       if (!memberships || memberships.length === 0) {
@@ -94,14 +130,14 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
 
       const userIds = memberships.map(m => m.user_id)
 
-      // Fetch users and tickets in parallel
-      const [usersRes, ticketsRes] = await Promise.all([
-        supabase.from('users').select('*').in('id', userIds),
-        supabase.from('tickets').select('*').eq('event_id', eventId).in('user_id', userIds),
+      // Batch fetch users and tickets in parallel
+      const [usersData, ticketsData] = await Promise.all([
+        batchFetchUsers(userIds),
+        batchFetchTickets(userIds, eventId),
       ])
 
-      const usersMap = new Map((usersRes.data || []).map(u => [u.id, u]))
-      const ticketsMap = new Map((ticketsRes.data || []).map(t => [t.user_id, t]))
+      const usersMap = new Map(usersData.map(u => [u.id, u]))
+      const ticketsMap = new Map(ticketsData.map(t => [t.user_id, t]))
 
       const result: Attendee[] = memberships
         .filter(m => usersMap.has(m.user_id))
@@ -121,6 +157,7 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
   }, [eventId])
 
   useEffect(() => { fetchAttendees() }, [fetchAttendees])
+  useEffect(() => { setPage(1) }, [search, roleFilter])
 
   // Filtered attendees
   const filtered = useMemo(() => {
@@ -137,6 +174,10 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
     }
     return list
   }, [attendees, search, roleFilter])
+
+  // Pagination
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   // Stats
   const stats = useMemo(() => ({
@@ -226,6 +267,55 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
     }
   }
 
+  // Search users to add to this event
+  const handleSearchUsersToAdd = async (q: string) => {
+    setAddSearch(q)
+    if (q.trim().length < 2) {
+      setAddResults([])
+      return
+    }
+    setAddSearching(true)
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .or(`full_name.ilike.%${q.trim()}%,email.ilike.%${q.trim()}%`)
+        .limit(20)
+
+      // Exclude users already in this event
+      const existingIds = new Set(attendees.map(a => a.user.id))
+      setAddResults((data || []).filter(u => !existingIds.has(u.id)))
+    } catch {
+      setAddResults([])
+    } finally {
+      setAddSearching(false)
+    }
+  }
+
+  // Add existing user to this event
+  const handleAddUserToEvent = async (userId: string) => {
+    setAddingUserId(userId)
+    try {
+      const res = await authFetch('/api/promoter/assign-user', {
+        userId,
+        eventId,
+        addedBy: user?.id,
+      })
+      const data = await res.json()
+      if (!res.ok && data.error) {
+        showError(data.error)
+        return
+      }
+      success('Usuario añadido al evento')
+      setAddResults(prev => prev.filter(u => u.id !== userId))
+      await fetchAttendees()
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
+    } finally {
+      setAddingUserId(null)
+    }
+  }
+
   // Export CSV
   const handleExport = () => {
     const headers = 'Nombre,Email,Rol,Genero,Ticket,Escaneado\n'
@@ -299,12 +389,29 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
         </select>
       </div>
 
-      {/* Export */}
-      {attendees.length > 0 && (
-        <button onClick={handleExport} className="btn-ghost text-xs text-primary">
-          <Download className="w-3 h-3" /> Exportar CSV
+      {/* Actions bar */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setShowAddUser(true); setAddSearch(''); setAddResults([]) }}
+          className="btn-primary text-xs py-1.5 px-3"
+        >
+          <UserPlus className="w-3 h-3" />
+          Añadir usuario
         </button>
-      )}
+        {attendees.length > 0 && (
+          <button onClick={handleExport} className="btn-ghost text-xs text-primary">
+            <Download className="w-3 h-3" /> CSV
+          </button>
+        )}
+        {filtered.length > 0 && (
+          <span className="text-[11px] text-white-muted ml-auto">
+            {filtered.length === attendees.length
+              ? `${filtered.length} usuarios`
+              : `${filtered.length} de ${attendees.length}`
+            }
+          </span>
+        )}
+      </div>
 
       {/* Attendees List */}
       <div className="space-y-1">
@@ -316,7 +423,7 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
             </p>
           </div>
         ) : (
-          filtered.map(a => {
+          paginated.map(a => {
             const roleConf = ROLE_CONFIG[a.membership.role] || ROLE_CONFIG.attendee
             const RoleIcon = roleConf.icon
             const isEditing = editingId === a.user.id
@@ -464,6 +571,11 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
         )}
       </div>
 
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+      )}
+
       {/* Confirm action modal */}
       {confirmAction && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmAction(null)}>
@@ -491,7 +603,7 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
             <p className="text-xs text-white-muted">
               {confirmAction.mode === 'delete'
                 ? 'Se eliminara el usuario permanentemente: su cuenta, tickets, pedidos de bebida, mensajes y votos. Esta accion no se puede deshacer.'
-                : 'Se quitara al usuario de este evento. Su ticket sera cancelado y su pedido de bebida eliminado. El usuario seguira existiendo en el sistema.'
+                : 'Se quitara al usuario de este evento. Su ticket sera cancelado y su pedido de bebida eliminado. El usuario seguira existiendo en el sistema y podra ser añadido a otros eventos.'
               }
             </p>
 
@@ -512,6 +624,87 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
                 {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
                 {deleting ? 'Procesando...' : confirmAction.mode === 'delete' ? 'Eliminar permanentemente' : 'Quitar del evento'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add user to event modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddUser(false)}>
+          <div className="card w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-black-border">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-primary" />
+                Añadir usuario al evento
+              </h3>
+              <button onClick={() => setShowAddUser(false)} className="p-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="p-4 border-b border-black-border">
+              <p className="text-xs text-white-muted mb-2">
+                Busca un usuario existente por nombre o email para añadirlo a este evento.
+                Util si un usuario quiere ir a varios eventos.
+              </p>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white-muted" />
+                <input
+                  type="text"
+                  value={addSearch}
+                  onChange={e => handleSearchUsersToAdd(e.target.value)}
+                  placeholder="Buscar por nombre o email..."
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="max-h-[300px] overflow-y-auto">
+              {addSearching ? (
+                <div className="p-6 text-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary mx-auto" />
+                </div>
+              ) : addSearch.length < 2 ? (
+                <div className="p-6 text-center text-xs text-white-muted">
+                  Escribe al menos 2 caracteres para buscar
+                </div>
+              ) : addResults.length === 0 ? (
+                <div className="p-6 text-center text-xs text-white-muted">
+                  No se encontraron usuarios que no esten ya en este evento
+                </div>
+              ) : (
+                addResults.map(u => {
+                  const roleConf = ROLE_CONFIG[u.role] || ROLE_CONFIG.attendee
+                  const isAdding = addingUserId === u.id
+                  return (
+                    <div key={u.id} className="flex items-center gap-3 px-4 py-3 border-b border-black-border last:border-0 hover:bg-white/[0.02]">
+                      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold', roleConf.bg, roleConf.color)}>
+                        {(u.full_name?.[0] || u.email[0]).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">{u.full_name || 'Sin nombre'}</p>
+                        <p className="text-[11px] text-white-muted truncate">{u.email}</p>
+                      </div>
+                      <span className={cn('text-[9px] font-medium px-1.5 py-0.5 rounded-full', roleConf.bg, roleConf.color)}>
+                        {roleConf.label}
+                      </span>
+                      <button
+                        onClick={() => handleAddUserToEvent(u.id)}
+                        disabled={isAdding}
+                        className="btn-primary text-xs py-1 px-2.5 disabled:opacity-40"
+                      >
+                        {isAdding ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
+                        Añadir
+                      </button>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
