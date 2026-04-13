@@ -597,62 +597,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Hype meter — confirmados */}
-      {attendeeCount > 0 && (
-        <div className="card p-4 animate-slide-up">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-primary" />
-              <p className="text-sm font-semibold text-white">Confirmados</p>
-            </div>
-            <p className="text-sm font-bold text-white tabular-nums">
-              {attendeeCount}
-              {venue?.capacity ? <span className="text-white-muted font-normal"> / {venue.capacity}</span> : null}
-            </p>
-          </div>
-          <div className="relative h-3 rounded-full bg-white/[0.06] overflow-hidden">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary via-primary to-red-400 transition-all duration-1000 ease-out"
-              style={{ width: `${Math.min((attendeeCount / (venue?.capacity || attendeeCount)) * 100, 100)}%` }}
-            />
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary/50 to-transparent blur-sm"
-              style={{ width: `${Math.min((attendeeCount / (venue?.capacity || attendeeCount)) * 100, 100)}%` }}
-            />
-          </div>
-          {venue?.capacity && (
-            <p className="text-[11px] text-white-muted mt-2">
-              {attendeeCount >= venue.capacity
-                ? '🔥 Sold out!'
-                : `${Math.round((attendeeCount / venue.capacity) * 100)}% — ${venue.capacity - attendeeCount} plazas restantes`
-              }
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Share event */}
-      <button
-        onClick={() => {
-          const text = `🎉 ${event.title}\n📅 ${formatDate(event.date)}\n⏰ ${formatTime(event.date)}h\n📍 ${event.location || venue?.address || ''}\n\n¡Nos vemos alli!`
-          if (navigator.share) {
-            navigator.share({ title: event.title, text }).catch(() => {})
-          } else {
-            navigator.clipboard.writeText(text)
-          }
-        }}
-        className="card p-4 flex items-center gap-3.5 w-full text-left active:scale-[0.98] transition-transform hover:border-primary/20"
-      >
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500/15 to-emerald-500/5 flex items-center justify-center flex-shrink-0">
-          <Share2 className="w-5 h-5 text-green-400" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-white">Compartir con amigos</p>
-          <p className="text-[11px] text-white-muted">Envia la info del evento por WhatsApp</p>
-        </div>
-        <ChevronRight className="w-4 h-4 text-white-muted flex-shrink-0" />
-      </button>
-
       {/* Event Info */}
       <div className="card-gold divide-y divide-white/5">
         {(event.location || venue?.address) && (
