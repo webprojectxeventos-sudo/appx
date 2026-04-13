@@ -17,6 +17,7 @@ import {
   Moon,
   Megaphone,
   Search,
+  ScanLine,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
@@ -28,7 +29,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 
 function BottomNav() {
   const pathname = usePathname()
-  const { profile, isAdmin, isPromoter, initialized, event } = useAuth()
+  const { profile, isAdmin, isPromoter, isStaff, initialized, event } = useAuth()
   const [hasSurveys, setHasSurveys] = useState(false)
 
   useEffect(() => {
@@ -65,6 +66,10 @@ function BottomNav() {
     { href: '/playlist', label: 'Playlist', icon: Music2 },
     { href: '/lost-found', label: 'Perdidos', icon: Search },
   ]
+
+  if (isStaff) {
+    navItems.push({ href: '/scanner', label: 'Scanner', icon: ScanLine })
+  }
 
   if (isPromoter || isAdmin) {
     navItems.push({ href: '/promoter', label: 'Promotor', icon: Megaphone })
