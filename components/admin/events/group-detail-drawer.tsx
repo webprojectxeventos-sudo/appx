@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Check } from 'lucide-react'
+import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Check, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/auth-fetch'
+import { useToast } from '@/components/ui/toast'
 import { CodesTab } from './tabs/codes-tab'
 import { PollsTab } from './tabs/polls-tab'
 import { SurveysTab } from './tabs/surveys-tab'
@@ -45,6 +47,11 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
   const [editingTime, setEditingTime] = useState(false)
   const [timeValue, setTimeValue] = useState('22:00')
   const [timeSaved, setTimeSaved] = useState(false)
+
+  // Delete event
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletingEvent, setDeletingEvent] = useState(false)
+  const { error: showError, success } = useToast()
 
   // Portal mount
   useEffect(() => { setMounted(true) }, [])
@@ -99,6 +106,27 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
       setTimeSaved(true)
       setTimeout(() => setTimeSaved(false), 1500)
       onRefresh?.()
+    }
+  }
+
+  const handleDeleteEvent = async () => {
+    if (!event) return
+    setDeletingEvent(true)
+    try {
+      const res = await authFetch('/api/admin/delete-event', { eventId: event.id })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al eliminar evento')
+        return
+      }
+      success(`Evento "${event.group_name || event.title}" eliminado`)
+      setShowDeleteConfirm(false)
+      onClose()
+      onRefresh?.()
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
+    } finally {
+      setDeletingEvent(false)
     }
   }
 
@@ -162,9 +190,18 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
               )}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors shrink-0">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2 rounded-lg text-white-muted hover:text-red-400 hover:bg-red-500/5 transition-colors"
+              title="Eliminar evento"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button onClick={onClose} className="p-2 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -204,6 +241,44 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
             </div>
           )}
         </div>
+
+        {/* Delete Event Confirmation */}
+        {showDeleteConfirm && (
+          <>
+            <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm" onClick={() => !deletingEvent && setShowDeleteConfirm(false)} />
+            <div className="absolute inset-0 z-[90] flex items-center justify-center p-4">
+              <div className="w-full max-w-sm bg-background border border-red-500/20 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="p-5 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
+                    <AlertTriangle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">Eliminar evento</h3>
+                  <p className="text-sm text-white-muted">
+                    Se eliminara <span className="text-white font-medium">{event.group_name || event.title}</span> y todos sus datos: asistentes, tickets, mensajes, encuestas, fotos, playlist, codigos de acceso.
+                  </p>
+                  <p className="text-xs text-red-400/80">Esta accion no se puede deshacer.</p>
+                </div>
+                <div className="flex gap-3 p-4 border-t border-white/[0.06]">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deletingEvent}
+                    className="btn-ghost flex-1 text-sm py-2.5"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleDeleteEvent}
+                    disabled={deletingEvent}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {deletingEvent && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {deletingEvent ? 'Eliminando...' : 'Eliminar evento'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   )
