@@ -2,19 +2,22 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Info, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon } from 'lucide-react'
+import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import { CodesTab } from './tabs/codes-tab'
 import { PollsTab } from './tabs/polls-tab'
 import { SurveysTab } from './tabs/surveys-tab'
 import { PlaylistTab } from './tabs/playlist-tab'
 import { ScheduleTab } from './tabs/schedule-tab'
 import { PhotosTab } from './tabs/photos-tab'
+import { AttendeesTab } from './tabs/attendees-tab'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
 
 const TABS = [
+  { id: 'attendees', label: 'Asistentes', icon: Users },
   { id: 'codes', label: 'Codigos', icon: KeyRound },
   { id: 'polls', label: 'Bebidas', icon: BarChart3 },
   { id: 'surveys', label: 'Encuestas', icon: ClipboardList },
@@ -30,23 +33,35 @@ interface GroupDetailDrawerProps {
   venueName?: string
   date?: string
   onClose: () => void
+  onRefresh?: () => void
 }
 
-export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDetailDrawerProps) {
+export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }: GroupDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<TabId>('codes')
   const [mounted, setMounted] = useState(false)
   const prevEventIdRef = useRef<string | undefined>(undefined)
 
+  // Time editing
+  const [editingTime, setEditingTime] = useState(false)
+  const [timeValue, setTimeValue] = useState('22:00')
+  const [timeSaved, setTimeSaved] = useState(false)
+
   // Portal mount
   useEffect(() => { setMounted(true) }, [])
 
-  // Reset tab when a different event is opened
+  // Reset tab + extract time when a different event is opened
   useEffect(() => {
     if (event?.id !== prevEventIdRef.current) {
       prevEventIdRef.current = event?.id
-      setActiveTab('codes')
+      setActiveTab('attendees')
+      setEditingTime(false)
+      // Extract time from event.date (e.g. "2026-04-24T22:00:00")
+      if (event?.date) {
+        const match = event.date.match(/T(\d{2}:\d{2})/)
+        setTimeValue(match ? match[1] : '22:00')
+      }
     }
-  }, [event?.id])
+  }, [event?.id, event?.date])
 
   // Close on Escape
   useEffect(() => {
@@ -64,11 +79,33 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
     }
   }, [event])
 
+  const handleSaveTime = async () => {
+    if (!event) return
+    // Build new date string preserving the date part
+    const datePart = event.date.split('T')[0]
+    const newDate = `${datePart}T${timeValue}:00`
+
+    const { error } = await supabase
+      .from('events')
+      .update({ date: newDate })
+      .eq('id', event.id)
+
+    if (!error) {
+      setEditingTime(false)
+      setTimeSaved(true)
+      setTimeout(() => setTimeSaved(false), 1500)
+      onRefresh?.()
+    }
+  }
+
   if (!event || !mounted) return null
 
   const dateFormatted = date
     ? new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
     : ''
+
+  // Current time display from event.date
+  const currentTime = event.date.match(/T(\d{2}:\d{2})/)?.[1] || '00:00'
 
   const drawerContent = (
     <>
@@ -85,6 +122,37 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
               <span className="text-[10px] font-mono text-white-muted bg-white/5 px-1.5 py-0.5 rounded">{event.event_code}</span>
               {venueName && <span className="text-[11px] text-white-muted">{venueName}</span>}
               {dateFormatted && <span className="text-[11px] text-white-muted">{dateFormatted}</span>}
+              {/* Editable time */}
+              {editingTime ? (
+                <span className="flex items-center gap-1">
+                  <input
+                    type="time"
+                    value={timeValue}
+                    onChange={e => setTimeValue(e.target.value)}
+                    className="px-1.5 py-0.5 rounded border border-primary/40 bg-transparent text-white text-[11px] focus:outline-none w-[80px]"
+                    autoFocus
+                  />
+                  <button onClick={handleSaveTime} className="p-0.5 rounded text-primary hover:bg-primary/10">
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => setEditingTime(false)} className="p-0.5 rounded text-white-muted hover:bg-white/5">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setTimeValue(currentTime); setEditingTime(true) }}
+                  className={cn(
+                    'flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded transition-colors',
+                    timeSaved
+                      ? 'text-primary bg-primary/10'
+                      : 'text-white-muted hover:text-primary hover:bg-white/5'
+                  )}
+                >
+                  <Clock className="w-3 h-3" />
+                  {timeSaved ? 'Guardado!' : currentTime + 'h'}
+                </button>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors shrink-0">
@@ -115,6 +183,7 @@ export function GroupDetailDrawer({ event, venueName, date, onClose }: GroupDeta
 
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto p-4">
+          {activeTab === 'attendees' && <AttendeesTab eventId={event.id} />}
           {activeTab === 'codes' && <CodesTab eventId={event.id} />}
           {activeTab === 'polls' && <PollsTab eventId={event.id} eventType={event.event_type} eventTitle={event.title} venueId={event.venue_id || undefined} date={date} />}
           {activeTab === 'surveys' && <SurveysTab eventId={event.id} />}

@@ -348,6 +348,7 @@ export default function EventsPage() {
         venueName={drawerEvent?.venue_id ? allVenues.find(v => v.id === drawerEvent.venue_id)?.name : undefined}
         date={selectedDate || undefined}
         onClose={() => setDrawerEvent(null)}
+        onRefresh={handleRefresh}
       />
     </div>
   )

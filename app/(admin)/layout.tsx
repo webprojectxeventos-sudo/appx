@@ -4,7 +4,7 @@ import React, { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
-import { ArrowLeft, Calendar, MessageCircle, LayoutDashboard, Building2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Calendar, MessageCircle, LayoutDashboard, Building2, AlertTriangle, UsersRound } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { AdminSelectionProvider } from '@/lib/admin-context'
@@ -57,6 +57,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
   const superAdminNavItems = [
     ...adminNavItems,
+    { href: '/admin/users', label: 'Usuarios', icon: UsersRound },
     { href: '/admin/org', label: 'Organizacion', icon: Building2 },
   ]
 
