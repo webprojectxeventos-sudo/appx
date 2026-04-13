@@ -160,7 +160,7 @@ export default function UsersPage() {
         .update({ role: bulkRole as UserRow['role'] })
         .in('id', Array.from(selectedUsers))
       if (error) throw error
-      success(`Rol actualizado para ${selectedUsers.size} usuarios`)
+      success(`Rol actualizado para ${selectedUsers.size} ${selectedUsers.size === 1 ? 'usuario' : 'usuarios'}`)
       setSelectedUsers(new Set())
       setBulkRole('')
       await fetchUsers()
@@ -336,7 +336,7 @@ export default function UsersPage() {
             Usuarios
           </h1>
           <p className="text-sm text-white-muted mt-0.5">
-            {totalCount} usuarios en la organizacion
+            {totalCount} {totalCount === 1 ? 'usuario' : 'usuarios'} en la organizacion
           </p>
         </div>
         <div className="flex items-center gap-2">

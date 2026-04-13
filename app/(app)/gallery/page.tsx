@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import NextImage from 'next/image'
-import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2, ExternalLink } from 'lucide-react'
+import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2, ExternalLink, Film, Play } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { downloadWithWatermark, shareWithWatermark } from '@/lib/watermark'
 import { supabase } from '@/lib/supabase'
@@ -300,6 +300,51 @@ export default function GalleryPage() {
           {allPhotos.length} foto{allPhotos.length !== 1 ? 's' : ''}
         </span>
       </div>
+
+      {/* Aftermovie — shows when admin sets video_url on event */}
+      {(event as any)?.video_url && (() => {
+        const url = (event as any).video_url as string
+        const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/)
+        const ytId = ytMatch?.[1]
+        return (
+          <div className="mb-5 card-glow overflow-hidden animate-slide-up">
+            <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-500/5 border border-purple-500/20 flex items-center justify-center">
+                <Film className="w-4 h-4 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Aftermovie</h3>
+                <p className="text-[10px] text-white-muted">Revive los mejores momentos</p>
+              </div>
+            </div>
+            {ytId ? (
+              <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${ytId}?rel=0&modestbranding=1`}
+                  title="Aftermovie"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="absolute inset-0 w-full h-full"
+                />
+              </div>
+            ) : (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative block mx-4 mb-4 rounded-xl overflow-hidden bg-white/[0.03] border border-white/[0.06] group"
+              >
+                <div className="flex items-center justify-center py-10">
+                  <div className="w-14 h-14 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Play className="w-6 h-6 text-primary ml-0.5" />
+                  </div>
+                </div>
+                <p className="text-center text-xs text-white-muted pb-4">Toca para ver el aftermovie</p>
+              </a>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Masonry Grid with Lazy Images */}
       <div className="columns-2 gap-2.5 md:columns-3">

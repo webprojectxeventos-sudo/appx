@@ -213,7 +213,7 @@ export default function OrgPage() {
               {/* Venue image */}
               {v.image_url ? (
                 <div className="relative aspect-[16/9] bg-black-card">
-                  <NextImage src={v.image_url} alt={v.name} fill className="object-cover" />
+                  <img src={v.image_url} alt={v.name} className="absolute inset-0 w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                   <div className="absolute bottom-3 left-3 right-3">
                     <p className="text-sm font-bold text-white drop-shadow-lg">{v.name}</p>

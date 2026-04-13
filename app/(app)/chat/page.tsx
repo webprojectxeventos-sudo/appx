@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { filterProfanity } from '@/lib/profanity-filter'
 import { notifyAnnouncement, requestNotificationPermission } from '@/lib/notifications'
 import type { Database } from '@/lib/types'
-import { MessageCircle, Send, Megaphone, ChevronDown, Bell, X, Users } from 'lucide-react'
+import { MessageCircle, Send, Megaphone, ChevronDown, Bell, X, Users, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const REACTION_EMOJIS = ['🔥', '❤️', '🎉', '👏', '😂']
@@ -632,28 +632,38 @@ export default function ChatPage() {
 
       {/* Pinned Announcements Bar — only in private tab */}
       {activeTab === 'private' && announcements.length > 0 && (
-        <div className="flex-shrink-0 overflow-hidden transition-all bg-gradient-to-b from-primary/[0.06] to-transparent border-b border-primary/10">
+        <div
+          className="flex-shrink-0 overflow-hidden transition-all"
+          style={{
+            background: 'linear-gradient(135deg, rgba(228,30,43,0.06) 0%, rgba(212,168,67,0.04) 100%)',
+            borderBottom: '1px solid rgba(228,30,43,0.12)',
+          }}
+        >
           <button
             onClick={() => setShowAllAnnouncements(!showAllAnnouncements)}
-            className="w-full px-4 py-2.5 text-left active:bg-primary/5 transition-colors"
+            className="w-full px-4 py-3 text-left active:bg-white/[0.02] transition-colors"
           >
-            <div className="flex items-start gap-2.5">
-              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Megaphone className="h-3 w-3 text-primary" />
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'linear-gradient(135deg, rgba(228,30,43,0.15) 0%, rgba(228,30,43,0.08) 100%)', border: '1px solid rgba(228,30,43,0.2)' }}
+              >
+                <Megaphone className="h-4 w-4 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] text-white/80 leading-snug line-clamp-2">
+                <p className="text-[10px] font-bold text-primary/70 tracking-wider uppercase mb-0.5">Anuncio fijado</p>
+                <p className="text-[13px] text-white/85 leading-snug line-clamp-2">
                   {announcements[announcements.length - 1].content}
                 </p>
-                {announcements.length > 1 && (
-                  <p className="text-[10px] mt-0.5 text-primary/50">
-                    {showAllAnnouncements ? 'Toca para cerrar' : `+${announcements.length - 1} anuncio${announcements.length - 1 > 1 ? 's' : ''} mas`}
+                {announcements.length > 1 && !showAllAnnouncements && (
+                  <p className="text-[11px] mt-1 text-primary/50 font-medium">
+                    +{announcements.length - 1} mas
                   </p>
                 )}
               </div>
               <ChevronDown
                 className={cn(
-                  'h-3.5 w-3.5 flex-shrink-0 mt-0.5 transition-transform text-primary/40',
+                  'h-4 w-4 flex-shrink-0 transition-transform text-white/25',
                   showAllAnnouncements && 'rotate-180'
                 )}
               />
@@ -662,7 +672,7 @@ export default function ChatPage() {
 
           {/* Expanded announcements list */}
           {showAllAnnouncements && (
-            <div className="px-4 pb-3 space-y-2 animate-scale-in">
+            <div className="px-4 pb-3 space-y-1.5 animate-scale-in">
               {[...announcements].reverse().map((ann, i) => {
                 const time = new Date(ann.created_at).toLocaleTimeString('es-ES', {
                   hour: '2-digit',
@@ -671,13 +681,17 @@ export default function ChatPage() {
                 return (
                   <div
                     key={ann.id}
-                    className={cn(
-                      'pl-6 py-2 border-l-2',
-                      i === 0 ? 'border-l-primary/40' : 'border-l-white/[0.06]'
-                    )}
+                    className="flex items-start gap-2.5 pl-2 py-2 rounded-lg"
+                    style={{ backgroundColor: i === 0 ? 'rgba(228,30,43,0.06)' : 'transparent' }}
                   >
-                    <p className="text-[12px] text-white/70 leading-snug">{ann.content}</p>
-                    <p className="text-[10px] text-white/25 mt-0.5">{time}</p>
+                    <div className={cn(
+                      'w-1 h-1 rounded-full mt-1.5 flex-shrink-0',
+                      i === 0 ? 'bg-primary/60' : 'bg-white/15'
+                    )} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] text-white/75 leading-snug">{ann.content}</p>
+                      <p className="text-[10px] text-white/25 mt-0.5">{time}</p>
+                    </div>
                   </div>
                 )
               })}
@@ -747,48 +761,52 @@ export default function ChatPage() {
               })()
 
               return (
-                <div key={message.id} className={cn(showHeader ? 'mt-2.5' : 'mt-[3px]')}>
+                <div key={message.id} className={cn(showHeader ? 'mt-3' : 'mt-1')}>
                   {/* Date separator */}
                   {isDifferentDay && (
-                    <div className="flex items-center justify-center my-3">
+                    <div className="flex items-center justify-center my-4">
                       <span
-                        className="text-[10px] font-medium px-3 py-1 rounded-full"
-                        style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)' }}
+                        className="text-[11px] font-medium px-4 py-1.5 rounded-full"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.04)' }}
                       >
                         {dateLabel}
                       </span>
                     </div>
                   )}
 
-                  <div className={cn('flex gap-1.5', isOwn ? 'flex-row-reverse' : 'flex-row')}>
+                  <div className={cn('flex gap-2', isOwn ? 'flex-row-reverse' : 'flex-row')}>
                     {/* Avatar */}
                     {showHeader && !isOwn ? (
                       <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-auto mb-0.5"
-                        style={{ backgroundColor: `${color}18`, border: `1.5px solid ${color}30` }}
+                        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-auto mb-0.5"
+                        style={{ backgroundColor: `${color}20`, border: `1.5px solid ${color}35` }}
                       >
-                        <span className="text-[9px] font-bold" style={{ color }}>{getInitials(message.sender_name)}</span>
+                        {message.sender_name ? (
+                          <span className="text-[10px] font-bold" style={{ color }}>{getInitials(message.sender_name)}</span>
+                        ) : (
+                          <User className="w-4 h-4" style={{ color }} />
+                        )}
                       </div>
                     ) : !isOwn ? (
-                      <div className="w-7 flex-shrink-0" />
+                      <div className="w-8 flex-shrink-0" />
                     ) : null}
 
                     {/* Message content */}
                     <div className={cn('max-w-[80%] min-w-[48px]')}>
                       {/* Sender name */}
                       {showHeader && !isOwn && (
-                        <p className="text-[11px] font-medium mb-0.5 ml-0.5" style={{ color }}>
-                          {message.sender_name || 'Usuario'}
+                        <p className="text-[12px] font-semibold mb-0.5 ml-1" style={{ color }}>
+                          {message.sender_name || 'Anonimo'}
                         </p>
                       )}
 
                       {/* Bubble */}
                       <div
                         className={cn(
-                          'relative px-3 py-[7px] break-words',
+                          'relative px-3.5 py-2 break-words',
                           isOwn
-                            ? showHeader ? 'rounded-2xl rounded-br-sm' : 'rounded-2xl rounded-r-sm'
-                            : showHeader ? 'rounded-2xl rounded-bl-sm' : 'rounded-2xl rounded-l-sm',
+                            ? showHeader ? 'rounded-2xl rounded-br-md' : 'rounded-2xl rounded-r-md'
+                            : showHeader ? 'rounded-2xl rounded-bl-md' : 'rounded-2xl rounded-l-md',
                         )}
                         style={{
                           background: isOwn
@@ -800,14 +818,14 @@ export default function ChatPage() {
                         }
                       >
                         <p
-                          className="text-[14px] leading-[1.4] inline"
+                          className="text-[15px] leading-[1.45] inline"
                           style={{ color: isOwn ? '#fff' : '#eee' }}
                         >
                           {message.content}
                         </p>
                         <span
                           className={cn(
-                            'text-[10px] ml-2 float-right mt-[5px] leading-none whitespace-nowrap',
+                            'text-[10px] ml-2 float-right mt-[6px] leading-none whitespace-nowrap',
                             isOwn ? 'text-white/50' : 'text-white/30'
                           )}
                         >

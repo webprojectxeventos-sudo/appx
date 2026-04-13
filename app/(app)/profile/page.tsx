@@ -230,7 +230,7 @@ export default function ProfilePage() {
                 className={cn(
                   'px-3 py-2.5 rounded-xl text-sm font-medium text-center border transition-all active:scale-95',
                   gender === opt.value
-                    ? 'border-primary bg-primary/12 text-primary'
+                    ? 'border-primary bg-primary/20 text-primary shadow-[0_0_8px_rgba(228,30,43,0.15)]'
                     : 'border-black-border bg-transparent text-white hover:border-white/15'
                 )}
               >

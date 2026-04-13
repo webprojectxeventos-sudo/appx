@@ -16,6 +16,7 @@ import {
   Sun,
   Moon,
   Megaphone,
+  Search,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
@@ -62,6 +63,7 @@ function BottomNav() {
     { href: '/polls', label: 'Bebidas', icon: GlassWater },
     ...(hasSurveys ? [{ href: '/surveys', label: 'Encuestas', icon: BarChart3 }] : []),
     { href: '/playlist', label: 'Playlist', icon: Music2 },
+    { href: '/lost-found', label: 'Perdidos', icon: Search },
   ]
 
   if (isPromoter || isAdmin) {
@@ -82,7 +84,7 @@ function BottomNav() {
               key={href}
               href={href}
               className={cn(
-                'relative flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all duration-300',
+                'relative flex flex-col items-center justify-center gap-0.5 grow shrink-0 basis-[60px] h-full transition-all duration-300',
                 active ? 'text-primary' : 'text-white-muted hover:text-gray-300'
               )}
             >

@@ -37,7 +37,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
         {/* Venue image */}
         {venue.image_url && (
           <div className="relative h-24 bg-black-card shrink-0">
-            <NextImage src={venue.image_url} alt={venue.name} fill className="object-cover" />
+            <img src={venue.image_url} alt={venue.name} className="absolute inset-0 w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
           </div>
         )}

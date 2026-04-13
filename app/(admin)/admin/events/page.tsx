@@ -152,11 +152,46 @@ export default function EventsPage() {
     return allVenues.filter(v => !usedIds.has(v.id))
   }, [allVenues, displayVenues])
 
-  // Handle new session creation
-  const handleSessionCreated = (date: string, venueIds: string[]) => {
+  // Handle new session creation — actually insert placeholder events for each venue
+  const handleSessionCreated = async (date: string, venueIds: string[]) => {
     setSelectedDate(date)
-    if (venueIds.length > 0) {
-      setManualVenues(new Set(venueIds))
+    if (venueIds.length > 0 && user?.id && organization?.id) {
+      // Check which venues already have events on this date
+      const existingVenueIds = new Set(
+        allEvents
+          .filter(e => formatDate(e.date) === date)
+          .map(e => e.venue_id)
+          .filter(Boolean)
+      )
+      const newVenueIds = venueIds.filter(id => !existingVenueIds.has(id))
+
+      if (newVenueIds.length > 0) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        const genCode = () => {
+          let code = ''
+          for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length))
+          return code
+        }
+        const venueLookup = new Map(allVenues.map(v => [v.id, v]))
+        const inserts = newVenueIds.map(venueId => {
+          const v = venueLookup.get(venueId)
+          return {
+            title: v?.name || 'Nuevo evento',
+            group_name: v?.name || 'Nuevo evento',
+            date: date + 'T00:00:00',
+            venue_id: venueId,
+            event_type: 'fiesta' as const,
+            event_code: genCode(),
+            organization_id: organization.id,
+            created_by: user.id,
+          }
+        })
+        await supabase.from('events').insert(inserts)
+        await fetchData()
+      } else {
+        // All venues already have events, just show them
+        setManualVenues(new Set(venueIds))
+      }
     }
   }
 

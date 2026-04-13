@@ -15,6 +15,13 @@ import {
   Sparkles,
   ChevronRight,
   Check,
+  Users,
+  Share2,
+  ShieldCheck,
+  ListChecks,
+  FileDown,
+  Play,
+  Film,
 } from 'lucide-react'
 
 function InstagramIcon({ className }: { className?: string }) {
@@ -23,6 +30,31 @@ function InstagramIcon({ className }: { className?: string }) {
       <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
       <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
       <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  )
+}
+
+function UberIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-6 h-6" fill="white">
+      <path d="M0 0h24v24H0z" fill="none"/>
+      <path d="M3 6.5V14c0 3.87 3.13 7 7 7h4c3.87 0 7-3.13 7-7V6.5h-3.5V14c0 1.93-1.57 3.5-3.5 3.5h-4C8.57 17.5 7 15.93 7 14V6.5H3z"/>
+    </svg>
+  )
+}
+
+function CabifyIcon() {
+  return (
+    <svg viewBox="0 0 800 800" className="w-6 h-6" fill="white">
+      <path d="M400 90C229 90 90 229 90 400s139 310 310 310 310-139 310-310S571 90 400 90zm120 370c0 66-54 120-120 120s-120-54-120-120V340c0-11 9-20 20-20h40c11 0 20 9 20 20v120c0 22 18 40 40 40s40-18 40-40V340c0-11 9-20 20-20h40c11 0 20 9 20 20v120z"/>
+    </svg>
+  )
+}
+
+function BoltIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-6 h-6" fill="black">
+      <path d="M13 2L4.09 12.63c-.1.13-.16.28-.09.42.07.14.2.2.35.2H11l-2 8.75c-.04.18.04.34.18.42.14.08.3.04.42-.08L19.91 11.37c.1-.13.16-.28.09-.42-.07-.14-.2-.2-.35-.2H13l2-8.75c.04-.18-.04-.34-.18-.42-.14-.08-.3-.04-.42.08L13 2z"/>
     </svg>
   )
 }
@@ -37,6 +69,30 @@ const EventMap = dynamic(() => import('@/components/event-map').then(m => ({ def
 const SOCIAL_LINKS = {
   instagram: 'https://instagram.com/tugraduacionmadrid',
   tiktok: 'https://tiktok.com/@tugraduacionmadrid',
+}
+
+const WEATHER_INFO: Record<number, { emoji: string; label: string }> = {
+  0: { emoji: '☀️', label: 'Despejado' },
+  1: { emoji: '🌤️', label: 'Mayormente despejado' },
+  2: { emoji: '⛅', label: 'Parcialmente nublado' },
+  3: { emoji: '☁️', label: 'Nublado' },
+  45: { emoji: '🌫️', label: 'Niebla' },
+  48: { emoji: '🌫️', label: 'Niebla' },
+  51: { emoji: '🌦️', label: 'Llovizna ligera' },
+  53: { emoji: '🌦️', label: 'Llovizna' },
+  55: { emoji: '🌧️', label: 'Llovizna fuerte' },
+  61: { emoji: '🌧️', label: 'Lluvia ligera' },
+  63: { emoji: '🌧️', label: 'Lluvia' },
+  65: { emoji: '🌧️', label: 'Lluvia fuerte' },
+  71: { emoji: '❄️', label: 'Nieve ligera' },
+  73: { emoji: '❄️', label: 'Nieve' },
+  75: { emoji: '❄️', label: 'Nieve fuerte' },
+  80: { emoji: '🌦️', label: 'Chubascos' },
+  81: { emoji: '🌧️', label: 'Chubascos fuertes' },
+  82: { emoji: '⛈️', label: 'Chubascos intensos' },
+  95: { emoji: '⛈️', label: 'Tormenta' },
+  96: { emoji: '⛈️', label: 'Tormenta con granizo' },
+  99: { emoji: '⛈️', label: 'Tormenta con granizo' },
 }
 
 interface Announcement {
@@ -126,6 +182,9 @@ export default function HomePage() {
   const [hasDrinkOrder, setHasDrinkOrder] = useState(false)
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [schedule, setSchedule] = useState<{ id: string; title: string; start_time: string; end_time: string | null; icon: string }[]>([])
+  const [attendeeCount, setAttendeeCount] = useState(0)
+  const [weather, setWeather] = useState<{ max: number; min: number; code: number } | null>(null)
+  const [checks, setChecks] = useState<Record<string, boolean>>({})
 
 
   // Fetch announcements (event-scoped + venue general)
@@ -201,14 +260,54 @@ export default function HomePage() {
       supabase.from('drink_orders').select('id').eq('event_id', event.id).eq('user_id', user.id).single(),
       supabase.from('tickets').select('qr_code').eq('event_id', event.id).eq('user_id', user.id).single(),
       supabase.from('event_schedule').select('id, title, start_time, end_time, icon').eq('event_id', event.id).order('start_time', { ascending: true }),
-    ]).then(([drinkRes, ticketRes, scheduleRes]) => {
+      supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('event_id', event.id),
+    ]).then(([drinkRes, ticketRes, scheduleRes, countRes]) => {
       if (cancelled) return
       setHasDrinkOrder(!!drinkRes.data)
       if (ticketRes.data?.qr_code) setQrCode(ticketRes.data.qr_code)
       if (scheduleRes.data) setSchedule(scheduleRes.data)
+      setAttendeeCount(countRes.count ?? 0)
     })
     return () => { cancelled = true }
   }, [event?.id, user?.id])
+
+  // Fetch weather forecast for event day (OpenMeteo — free, no API key)
+  useEffect(() => {
+    if (!venue?.latitude || !venue?.longitude || !event?.date) return
+    const daysUntil = (new Date(event.date).getTime() - Date.now()) / 86400000
+    if (daysUntil < 0 || daysUntil > 14) return // forecast limit 14 days
+    const dateStr = new Date(event.date).toISOString().split('T')[0]
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${venue.latitude}&longitude=${venue.longitude}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Madrid&start_date=${dateStr}&end_date=${dateStr}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.daily) {
+          setWeather({
+            max: Math.round(data.daily.temperature_2m_max[0]),
+            min: Math.round(data.daily.temperature_2m_min[0]),
+            code: data.daily.weathercode[0],
+          })
+        }
+      })
+      .catch(() => {})
+  }, [venue?.latitude, venue?.longitude, event?.date])
+
+  // Checklist — load from localStorage
+  useEffect(() => {
+    if (!event?.id) return
+    try {
+      const saved = localStorage.getItem(`px-checklist-${event.id}`)
+      if (saved) setChecks(JSON.parse(saved))
+    } catch {}
+  }, [event?.id])
+
+  const toggleCheck = (id: string) => {
+    if (!event?.id) return
+    setChecks(prev => {
+      const next = { ...prev, [id]: !prev[id] }
+      localStorage.setItem(`px-checklist-${event.id}`, JSON.stringify(next))
+      return next
+    })
+  }
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const formatTime = (d: string) => new Date(d).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
@@ -276,8 +375,146 @@ export default function HomePage() {
         <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
       </div>
 
+      {/* Aftermovie — shows when admin sets video_url */}
+      {(event as any).video_url && (() => {
+        const url = (event as any).video_url as string
+        // Extract YouTube embed ID
+        const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/)
+        const ytId = ytMatch?.[1]
+        return (
+          <div className="card-glow overflow-hidden animate-slide-up">
+            <div className="flex items-center gap-2.5 px-5 pt-4 pb-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-500/5 border border-purple-500/20 flex items-center justify-center">
+                <Film className="w-4 h-4 text-purple-400" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-white">Aftermovie</h2>
+                <p className="text-[10px] text-white-muted">Revive los mejores momentos</p>
+              </div>
+            </div>
+            {ytId ? (
+              <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${ytId}?rel=0&modestbranding=1`}
+                  title="Aftermovie"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="absolute inset-0 w-full h-full"
+                />
+              </div>
+            ) : (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative block mx-4 mb-4 rounded-xl overflow-hidden bg-white/[0.03] border border-white/[0.06] group"
+              >
+                <div className="flex items-center justify-center py-10">
+                  <div className="w-14 h-14 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Play className="w-6 h-6 text-primary ml-0.5" />
+                  </div>
+                </div>
+                <p className="text-center text-xs text-white-muted pb-4">Toca para ver el aftermovie</p>
+              </a>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Countdown — zero re-render component */}
       {event.date && <CountdownTimer targetDate={event.date} />}
+
+      {/* Checklist — 24h before event */}
+      {(() => {
+        const hoursUntil = event.date ? (new Date(event.date).getTime() - Date.now()) / 3600000 : Infinity
+        if (hoursUntil <= 0 || hoursUntil > 24) return null
+        const isESO = (event.group_name || '').toLowerCase().includes('eso')
+        const authPdf = isESO ? '/autorizacion-eso.pdf' : '/autorizacion-bachillerato.pdf'
+        const authLabel = isESO ? 'Autorizacion fiesta ESO' : 'Autorizacion fiesta Bachillerato'
+        const items = [
+          { id: 'dni', label: 'DNI / Documento de identidad', sub: 'Imprescindible para entrar' },
+          { id: 'entrada', label: 'Entrada', sub: qrCode ? 'Ya tienes tu QR listo' : 'Asegurate de tener tu entrada', auto: !!qrCode },
+          { id: 'autorizacion', label: `${authLabel} (menores)`, sub: 'Impresa y firmada por padre/madre/tutor' },
+          { id: 'fotocopia', label: 'Fotocopia DNI del padre/madre/tutor', sub: 'Del que firme la autorizacion' },
+        ]
+        const completed = items.filter(it => it.auto || checks[it.id]).length
+        return (
+          <div className="card-glow p-5 space-y-4 animate-slide-up animate-glow-pulse">
+            {/* Warm message */}
+            <div className="text-center pb-2 border-b border-white/5">
+              <p className="text-2xl mb-2">🎉</p>
+              <p className="text-sm font-bold text-white mb-1">¡Vuestra fiesta es mañana!</p>
+              <p className="text-[12px] text-white-muted leading-relaxed max-w-[280px] mx-auto">
+                Disfrutad mucho de la ceremonia, es un dia muy especial. Para que todo salga perfecto, asegurate de llevar todo preparado.
+              </p>
+            </div>
+
+            {/* Checklist header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-primary" />
+                <p className="text-sm font-bold text-white">¿Lo tienes todo?</p>
+              </div>
+              <span className={cn(
+                'text-xs font-bold px-2.5 py-1 rounded-full',
+                completed === items.length ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-white-muted'
+              )}>
+                {completed}/{items.length}
+              </span>
+            </div>
+
+            {/* Checklist items */}
+            <div className="space-y-1">
+              {items.map(item => {
+                const done = item.auto || checks[item.id]
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => !item.auto && toggleCheck(item.id)}
+                    className="flex items-center gap-3 w-full text-left p-2.5 rounded-xl hover:bg-white/[0.03] transition-colors active:scale-[0.98]"
+                  >
+                    <div className={cn(
+                      'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all',
+                      done ? 'bg-emerald-500 border-emerald-500 scale-100' : 'border-white/20 scale-100'
+                    )}>
+                      {done && <Check className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={cn('text-sm transition-all', done ? 'text-white-muted line-through' : 'text-white font-medium')}>
+                        {item.label}
+                      </p>
+                      <p className="text-[10px] text-white-muted">{item.sub}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Physical documents warning */}
+            <div className="p-3 rounded-xl bg-yellow-500/[0.07] border border-yellow-500/20">
+              <p className="text-[11px] font-bold text-yellow-400 mb-1">⚠️ TODO EN FISICO</p>
+              <p className="text-[11px] text-white-muted leading-relaxed">
+                El DNI, la autorizacion y la fotocopia tienen que estar <span className="text-white font-medium">impresos en papel</span>. No se aceptan fotos ni documentos en el movil.
+              </p>
+            </div>
+
+            {/* Download authorization */}
+            <a
+              href={authPdf}
+              download
+              className="flex items-center gap-3 w-full p-3 rounded-xl bg-primary/10 border border-primary/20 active:scale-[0.98] transition-transform"
+            >
+              <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                <FileDown className="w-4 h-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white">Descargar autorizacion</p>
+                <p className="text-[10px] text-white-muted">{authLabel} — PDF</p>
+              </div>
+            </a>
+          </div>
+        )
+      })()}
 
       {/* Ticket / Complete Order Banner */}
       {qrCode ? (
@@ -300,8 +537,8 @@ export default function HomePage() {
       ) : null}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-3 gap-2.5">
-        <Link href="/polls" className="card-glow p-4 text-center active:scale-[0.92] transition-transform animate-scale-in">
+      <div className="grid grid-cols-4 gap-2">
+        <Link href="/polls" className="card-glow p-3.5 text-center active:scale-[0.92] transition-transform animate-scale-in">
           <div className={`w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center ${hasDrinkOrder ? 'bg-emerald-500/15' : 'bg-gradient-to-br from-primary/15 to-primary/5'}`}>
             {hasDrinkOrder ? (
               <Check className="w-5 h-5 text-emerald-400" />
@@ -309,19 +546,25 @@ export default function HomePage() {
               <GlassWater className="w-5 h-5 text-primary" />
             )}
           </div>
-          <p className="text-xs font-medium text-white">{hasDrinkOrder ? 'Pedido listo' : 'Bebidas'}</p>
+          <p className="text-[11px] font-medium text-white">{hasDrinkOrder ? 'Pedido' : 'Bebidas'}</p>
         </Link>
-        <Link href="/gallery" className="card-glow p-4 text-center active:scale-[0.92] transition-transform animate-scale-in delay-100">
+        <Link href="/gallery" className="card-glow p-3.5 text-center active:scale-[0.92] transition-transform animate-scale-in delay-100">
           <div className="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center bg-gradient-to-br from-gold/15 to-gold/5">
             <ImageIcon className="w-5 h-5 text-gold" />
           </div>
-          <p className="text-xs font-medium text-white">Galeria</p>
+          <p className="text-[11px] font-medium text-white">Galeria</p>
         </Link>
-        <Link href="/chat" className="card-glow p-4 text-center active:scale-[0.92] transition-transform animate-scale-in delay-200">
+        <Link href="/chat" className="card-glow p-3.5 text-center active:scale-[0.92] transition-transform animate-scale-in delay-200">
           <div className="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center bg-gradient-to-br from-violet-500/15 to-violet-500/5">
             <MessageCircle className="w-5 h-5 text-violet-400" />
           </div>
-          <p className="text-xs font-medium text-white">Chat</p>
+          <p className="text-[11px] font-medium text-white">Chat</p>
+        </Link>
+        <Link href="/playlist" className="card-glow p-3.5 text-center active:scale-[0.92] transition-transform animate-scale-in delay-300">
+          <div className="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center bg-gradient-to-br from-cyan-500/15 to-cyan-500/5">
+            <Music2 className="w-5 h-5 text-cyan-400" />
+          </div>
+          <p className="text-[11px] font-medium text-white">Playlist</p>
         </Link>
       </div>
 
@@ -354,16 +597,73 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Hype meter — confirmados */}
+      {attendeeCount > 0 && (
+        <div className="card p-4 animate-slide-up">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              <p className="text-sm font-semibold text-white">Confirmados</p>
+            </div>
+            <p className="text-sm font-bold text-white tabular-nums">
+              {attendeeCount}
+              {venue?.capacity ? <span className="text-white-muted font-normal"> / {venue.capacity}</span> : null}
+            </p>
+          </div>
+          <div className="relative h-3 rounded-full bg-white/[0.06] overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary via-primary to-red-400 transition-all duration-1000 ease-out"
+              style={{ width: `${Math.min((attendeeCount / (venue?.capacity || attendeeCount)) * 100, 100)}%` }}
+            />
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary/50 to-transparent blur-sm"
+              style={{ width: `${Math.min((attendeeCount / (venue?.capacity || attendeeCount)) * 100, 100)}%` }}
+            />
+          </div>
+          {venue?.capacity && (
+            <p className="text-[11px] text-white-muted mt-2">
+              {attendeeCount >= venue.capacity
+                ? '🔥 Sold out!'
+                : `${Math.round((attendeeCount / venue.capacity) * 100)}% — ${venue.capacity - attendeeCount} plazas restantes`
+              }
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Share event */}
+      <button
+        onClick={() => {
+          const text = `🎉 ${event.title}\n📅 ${formatDate(event.date)}\n⏰ ${formatTime(event.date)}h\n📍 ${event.location || venue?.address || ''}\n\n¡Nos vemos alli!`
+          if (navigator.share) {
+            navigator.share({ title: event.title, text }).catch(() => {})
+          } else {
+            navigator.clipboard.writeText(text)
+          }
+        }}
+        className="card p-4 flex items-center gap-3.5 w-full text-left active:scale-[0.98] transition-transform hover:border-primary/20"
+      >
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500/15 to-emerald-500/5 flex items-center justify-center flex-shrink-0">
+          <Share2 className="w-5 h-5 text-green-400" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-white">Compartir con amigos</p>
+          <p className="text-[11px] text-white-muted">Envia la info del evento por WhatsApp</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-white-muted flex-shrink-0" />
+      </button>
+
       {/* Event Info */}
       <div className="card-gold divide-y divide-white/5">
-        {event.location && (
+        {(event.location || venue?.address) && (
           <div className="flex items-center gap-4 p-4">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-gold/15 to-gold/5 flex-shrink-0">
               <MapPin className="w-5 h-5 text-gold" />
             </div>
-            <div className="min-w-0">
+            <div className="flex-1 min-w-0">
               <p className="text-[10px] uppercase tracking-widest text-white-muted">Ubicacion</p>
-              <p className="text-white text-sm font-medium truncate">{event.location}</p>
+              <p className="text-white text-sm font-medium truncate">{event.location || venue?.address}</p>
+              {venue?.city && <p className="text-[11px] text-white-muted truncate">{venue.city}</p>}
             </div>
           </div>
         )}
@@ -387,9 +687,24 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Map */}
-      {event.latitude && event.longitude && event.location && (
-        <EventMap latitude={event.latitude} longitude={event.longitude} location={event.location} />
+      {/* Weather forecast */}
+      {weather && (() => {
+        const w = WEATHER_INFO[weather.code] || { emoji: '🌡️', label: 'Sin datos' }
+        return (
+          <div className="card p-4 flex items-center gap-4 animate-slide-up">
+            <div className="text-4xl leading-none">{w.emoji}</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">El tiempo para tu fiesta</p>
+              <p className="text-[11px] text-white-muted">{w.label} · Max {weather.max}° / Min {weather.min}°</p>
+            </div>
+            <p className="text-2xl font-bold text-white tabular-nums">{weather.max}°</p>
+          </div>
+        )
+      })()}
+
+      {/* Map — Como llegar */}
+      {venue?.latitude && venue?.longitude && (event.location || venue?.address) && (
+        <EventMap latitude={venue.latitude} longitude={venue.longitude} location={event.location || venue.address || ''} />
       )}
 
       {/* Timeline */}
@@ -434,6 +749,49 @@ export default function HomePage() {
           <p className="text-white-muted text-sm leading-relaxed">{event.description}</p>
         </div>
       )}
+
+      {/* Volver a casa seguro */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-white-muted">Volver a casa seguro</h2>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <a
+            href={`https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${venue?.latitude || ''}&pickup[longitude]=${venue?.longitude || ''}&pickup[nickname]=${encodeURIComponent(venue?.name || 'Venue')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card p-3 flex flex-col items-center gap-2 active:scale-95 transition-all hover:border-white/15 text-center"
+          >
+            <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center flex-shrink-0 border border-white/10">
+              <UberIcon />
+            </div>
+            <p className="text-white text-xs font-medium">Uber</p>
+          </a>
+          <a
+            href="https://cabify.com/app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card p-3 flex flex-col items-center gap-2 active:scale-95 transition-all hover:border-white/15 text-center"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#7B4FFC' }}>
+              <CabifyIcon />
+            </div>
+            <p className="text-white text-xs font-medium">Cabify</p>
+          </a>
+          <a
+            href="https://m.bolt.eu/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card p-3 flex flex-col items-center gap-2 active:scale-95 transition-all hover:border-white/15 text-center"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#34D186' }}>
+              <BoltIcon />
+            </div>
+            <p className="text-white text-xs font-medium">Bolt</p>
+          </a>
+        </div>
+      </div>
 
       {/* Social Links */}
       <div>

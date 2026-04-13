@@ -273,7 +273,7 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-sm font-bold text-white">{g.groupName || g.title}</h3>
-                        {g.groupName && <p className="text-[11px] text-white-muted">{g.title}</p>}
+                        {g.groupName && g.groupName !== g.title && <p className="text-[11px] text-white-muted">{g.title}</p>}
                       </div>
                       {g.incidents > 0 && (
                         <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">{g.incidents} inc.</span>

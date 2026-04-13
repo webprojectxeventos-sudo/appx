@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { authFetch } from '@/lib/auth-fetch'
 import { supabase } from '@/lib/supabase'
@@ -33,6 +34,7 @@ const ALLERGY_OPTIONS = [
 
 export default function DrinksPage() {
   const { user, profile, event, venue, loading } = useAuth()
+  const router = useRouter()
   const { error: showError, success } = useToast()
   const [alcoholChoice, setAlcoholChoice] = useState<string | null>(null)
   const [softDrinkChoice, setSoftDrinkChoice] = useState<string | null>(null)
@@ -168,7 +170,15 @@ export default function DrinksPage() {
           }).catch(() => {})
         }
       }
+      // Mark drink order as done in sessionStorage so layout stops redirecting
+      try { sessionStorage.setItem(`drink_order_${event.id}_${user.id}`, 'done') } catch {}
+
       setSubmitted(true)
+
+      // If this was the first order (not an edit), redirect to home after brief delay
+      if (!existingOrder) {
+        setTimeout(() => router.replace('/home'), 1200)
+      }
     } catch (err) {
       console.error('Error saving drink order:', err)
       showError('Error al guardar tu pedido')

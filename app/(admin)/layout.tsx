@@ -109,7 +109,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Mobile Tab Navigation */}
-      <nav className="md:hidden sticky top-[53px] z-30 border-b border-white/[0.06] glass-panel overflow-x-auto">
+      <nav className="md:hidden sticky top-[53px] z-30 border-b border-white/[0.06] glass-panel overflow-x-auto scrollbar-none">
         <div className="flex px-2 py-2 gap-1">
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = isActive(href)
@@ -118,7 +118,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                 key={href}
                 href={href}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap rounded-lg font-medium transition-all',
+                  'flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap rounded-lg font-medium transition-all shrink-0',
                   active
                     ? 'bg-primary text-white'
                     : 'text-white-muted hover:text-white'

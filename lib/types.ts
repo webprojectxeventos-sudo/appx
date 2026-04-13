@@ -52,6 +52,7 @@ export type Database = {
           organization_id: string | null
           venue_id: string | null
           group_name: string | null
+          video_url: string | null
           created_by: string
           created_at: string
         }
@@ -69,6 +70,7 @@ export type Database = {
           organization_id?: string | null
           venue_id?: string | null
           group_name?: string | null
+          video_url?: string | null
           created_by: string
           created_at?: string
         }
@@ -86,6 +88,7 @@ export type Database = {
           organization_id?: string | null
           venue_id?: string | null
           group_name?: string | null
+          video_url?: string | null
           created_by?: string
           created_at?: string
         }
@@ -640,6 +643,39 @@ export type Database = {
           content?: string
           sent_by?: string
           sent_at?: string
+        }
+        Relationships: []
+      }
+      lost_found: {
+        Row: {
+          id: string
+          event_id: string
+          user_id: string
+          description: string
+          location_hint: string | null
+          contact_info: string | null
+          status: 'lost' | 'found'
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          event_id: string
+          user_id: string
+          description: string
+          location_hint?: string | null
+          contact_info?: string | null
+          status?: 'lost' | 'found'
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          event_id?: string
+          user_id?: string
+          description?: string
+          location_hint?: string | null
+          contact_info?: string | null
+          status?: 'lost' | 'found'
+          created_at?: string
         }
         Relationships: []
       }
