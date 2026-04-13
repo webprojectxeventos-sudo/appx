@@ -8,9 +8,22 @@
     "clean": "rm -rf .next",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap sync ios && npx cap open ios",
+    "cap:android": "npx cap sync android && npx cap open android",
+    "cap:build": "npx cap sync && echo '✅ Synced — open Xcode/Android Studio to build'"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.3.0",
+    "@capacitor/keyboard": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@supabase/supabase-js": "^2.101.1",
     "@types/leaflet": "^1.9.21",
     "class-variance-authority": "^0.7.1",

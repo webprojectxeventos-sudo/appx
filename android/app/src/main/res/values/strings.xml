@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Project X</string>
+    <string name="title_activity_main">Project X</string>
+    <string name="package_name">com.tugraduacion.projectx</string>
+    <string name="custom_url_scheme">com.tugraduacion.projectx</string>
+</resources>

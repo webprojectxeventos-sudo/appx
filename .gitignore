@@ -53,3 +53,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# capacitor native build artifacts
+ios/App/Pods/
+ios/App/App/public/
+ios/App/output/
+android/app/build/
+android/.gradle/
+android/capacitor-cordova-android-plugins/build/
