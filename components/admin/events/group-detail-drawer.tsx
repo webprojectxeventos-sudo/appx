@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Check, Trash2, Loader2, AlertTriangle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Calendar, Check, Trash2, Loader2, AlertTriangle } from 'lucide-react'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
@@ -48,6 +48,11 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
   const [timeValue, setTimeValue] = useState('22:00')
   const [timeSaved, setTimeSaved] = useState(false)
 
+  // Date editing
+  const [editingDate, setEditingDate] = useState(false)
+  const [dateValue, setDateValue] = useState('')
+  const [dateSaved, setDateSaved] = useState(false)
+
   // Delete event
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deletingEvent, setDeletingEvent] = useState(false)
@@ -56,18 +61,20 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
   // Portal mount
   useEffect(() => { setMounted(true) }, [])
 
-  // Reset tab + extract time when a different event is opened
+  // Reset tab + extract time + date when a different event is opened
   useEffect(() => {
     if (event?.id !== prevEventIdRef.current) {
       prevEventIdRef.current = event?.id
       setActiveTab('attendees')
       setEditingTime(false)
-      // Extract LOCAL time from event.date (handles UTC→local conversion)
+      setEditingDate(false)
+      // Extract LOCAL time + date from event.date (handles UTC→local conversion)
       if (event?.date) {
         const d = new Date(event.date)
         const hh = String(d.getHours()).padStart(2, '0')
         const mm = String(d.getMinutes()).padStart(2, '0')
         setTimeValue(`${hh}:${mm}`)
+        setDateValue(toLocalDateKey(d))
       }
     }
   }, [event?.id, event?.date])
@@ -96,17 +103,55 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
     orig.setHours(hh, mm, 0, 0)
     const newDate = orig.toISOString()
 
-    const { error } = await supabase
+    // .select() returns the updated rows — if RLS silently blocks, data is []
+    const { data, error } = await supabase
       .from('events')
       .update({ date: newDate })
       .eq('id', event.id)
+      .select()
 
-    if (!error) {
-      setEditingTime(false)
-      setTimeSaved(true)
-      setTimeout(() => setTimeSaved(false), 1500)
-      onRefresh?.()
+    if (error) {
+      showError('Error al guardar la hora')
+      return
     }
+    if (!data || data.length === 0) {
+      showError('No tienes permiso para modificar este evento')
+      return
+    }
+    setEditingTime(false)
+    setTimeSaved(true)
+    setTimeout(() => setTimeSaved(false), 1500)
+    onRefresh?.()
+  }
+
+  const handleSaveDate = async () => {
+    if (!event || !dateValue) return
+    // Preserve the original local time, update only the date.
+    // Parse as local components to avoid UTC timezone shift.
+    const orig = new Date(event.date)
+    const [year, month, day] = dateValue.split('-').map(Number)
+    if (!year || !month || !day) return
+    orig.setFullYear(year, month - 1, day)
+    const newDate = orig.toISOString()
+
+    const { data, error } = await supabase
+      .from('events')
+      .update({ date: newDate })
+      .eq('id', event.id)
+      .select()
+
+    if (error) {
+      showError('Error al guardar la fecha')
+      return
+    }
+    if (!data || data.length === 0) {
+      showError('No tienes permiso para modificar este evento')
+      return
+    }
+    setEditingDate(false)
+    setDateSaved(true)
+    setTimeout(() => setDateSaved(false), 1500)
+    onRefresh?.()
   }
 
   const handleDeleteEvent = async () => {
@@ -132,15 +177,13 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
 
   if (!event || !mounted) return null
 
-  const dateFormatted = date
-    ? new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-    : ''
+  // Display date derived from event.date (local timezone, not the stale `date` prop)
+  const eventLocal = new Date(event.date)
+  const dateFormatted = eventLocal.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
+  const currentDateKey = toLocalDateKey(eventLocal)
 
   // Current time display from event.date (local timezone)
-  const currentTime = (() => {
-    const d = new Date(event.date)
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  })()
+  const currentTime = `${String(eventLocal.getHours()).padStart(2, '0')}:${String(eventLocal.getMinutes()).padStart(2, '0')}`
 
   const drawerContent = (
     <>
@@ -156,7 +199,37 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-[10px] font-mono text-white-muted bg-white/5 px-1.5 py-0.5 rounded">{event.event_code}</span>
               {venueName && <span className="text-[11px] text-white-muted">{venueName}</span>}
-              {dateFormatted && <span className="text-[11px] text-white-muted">{dateFormatted}</span>}
+              {/* Editable date */}
+              {editingDate ? (
+                <span className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    value={dateValue}
+                    onChange={e => setDateValue(e.target.value)}
+                    className="px-1.5 py-0.5 rounded border border-primary/40 bg-transparent text-white text-[11px] focus:outline-none"
+                    autoFocus
+                  />
+                  <button onClick={handleSaveDate} className="p-0.5 rounded text-primary hover:bg-primary/10">
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => setEditingDate(false)} className="p-0.5 rounded text-white-muted hover:bg-white/5">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setDateValue(currentDateKey); setEditingDate(true) }}
+                  className={cn(
+                    'flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded transition-colors',
+                    dateSaved
+                      ? 'text-primary bg-primary/10'
+                      : 'text-white-muted hover:text-primary hover:bg-white/5'
+                  )}
+                >
+                  <Calendar className="w-3 h-3" />
+                  {dateSaved ? 'Guardado!' : dateFormatted}
+                </button>
+              )}
               {/* Editable time */}
               {editingTime ? (
                 <span className="flex items-center gap-1">

@@ -137,6 +137,8 @@ export type Database = {
           content: string
           is_announcement: boolean
           is_pinned: boolean
+          deleted_at: string | null
+          deleted_by: string | null
           created_at: string
         }
         Insert: {
@@ -148,6 +150,8 @@ export type Database = {
           content: string
           is_announcement?: boolean
           is_pinned?: boolean
+          deleted_at?: string | null
+          deleted_by?: string | null
           created_at?: string
         }
         Update: {
@@ -159,6 +163,8 @@ export type Database = {
           content?: string
           is_announcement?: boolean
           is_pinned?: boolean
+          deleted_at?: string | null
+          deleted_by?: string | null
           created_at?: string
         }
         Relationships: []
@@ -709,6 +715,39 @@ export type Database = {
           used_by?: string | null
           used_at?: string | null
           created_at?: string
+        }
+        Relationships: []
+      }
+      chat_bans: {
+        Row: {
+          id: string
+          user_id: string
+          event_id: string
+          banned_by: string
+          reason: string | null
+          banned_at: string
+          expires_at: string | null
+          is_active: boolean
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          event_id: string
+          banned_by: string
+          reason?: string | null
+          banned_at?: string
+          expires_at?: string | null
+          is_active?: boolean
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          event_id?: string
+          banned_by?: string
+          reason?: string | null
+          banned_at?: string
+          expires_at?: string | null
+          is_active?: boolean
         }
         Relationships: []
       }

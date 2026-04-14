@@ -7,12 +7,13 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function Home() {
   const router = useRouter();
-  const { user, initialized, loading } = useAuth();
+  const { user, initialized, loading, isAdmin } = useAuth();
 
   useEffect(() => {
     if (!initialized || loading) return;
-    router.replace(user ? "/home" : "/login");
-  }, [initialized, loading, user, router]);
+    if (!user) { router.replace("/login"); return; }
+    router.replace(isAdmin ? "/admin/dashboard" : "/home");
+  }, [initialized, loading, user, isAdmin, router]);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center relative overflow-hidden">

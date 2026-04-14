@@ -4,11 +4,14 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 import {
   Users, MessageCircle, Ticket, BarChart3,
   AlertTriangle, Activity, Clock, Radio,
+  Calendar, ScanLine, Megaphone, Building2, UsersRound,
+  GlassWater, UserPlus, ArrowRight, Zap,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
@@ -32,11 +35,6 @@ interface LiveEntry {
   time: string
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toISOString().split('T')[0]
-}
-
 export default function DashboardPage() {
   const { user, organization, isAdmin, isSuperAdmin, isGroupAdmin, initialized, events: userEvents } = useAuth()
   const { allVenues } = useAdminSelection()
@@ -48,6 +46,9 @@ export default function DashboardPage() {
   const [groupStats, setGroupStats] = useState<GroupStats[]>([])
   const [loading, setLoading] = useState(true)
   const [feed, setFeed] = useState<LiveEntry[]>([])
+  const [recentUsers, setRecentUsers] = useState<{ id: string; full_name: string; email: string; created_at: string; event_title?: string }[]>([])
+  const [totalMessages, setTotalMessages] = useState(0)
+  const [totalDrinks, setTotalDrinks] = useState(0)
   const feedRef = useRef<HTMLDivElement>(null)
 
   // Fetch events — scoped by role
@@ -76,19 +77,19 @@ export default function DashboardPage() {
   }, [user?.id, organization?.id, isSuperAdmin, isGroupAdmin, userEvents])
 
   // Derived: unique dates
-  const dates = useMemo(() => [...new Set(allEvents.map(e => formatDate(e.date)))].sort(), [allEvents])
+  const dates = useMemo(() => [...new Set(allEvents.map(e => toLocalDateKey(e.date)))].sort(), [allEvents])
 
   // Auto-select closest date (derived, no effect needed)
   const selectedDate = useMemo(() => {
     if (userSelectedDate && dates.includes(userSelectedDate)) return userSelectedDate
     if (dates.length === 0) return null
-    const today = new Date().toISOString().split('T')[0]
+    const today = toLocalDateKey(new Date())
     const futureDate = dates.find(d => d >= today)
     return futureDate || dates[dates.length - 1]
   }, [dates, userSelectedDate])
 
   // Events for selected date
-  const eventsForDate = allEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate)
+  const eventsForDate = allEvents.filter(e => selectedDate && toLocalDateKey(e.date) === selectedDate)
 
   // Venues with events on this date
   const venueIdsForDate = new Set(eventsForDate.map(e => e.venue_id).filter(Boolean))
@@ -129,12 +130,42 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeEvents.length === 0) {
       setGroupStats([])
+      setRecentUsers([])
+      setTotalMessages(0)
+      setTotalDrinks(0)
       setLoading(false)
       return
     }
     let cancelled = false
     setLoading(true)
-    loadStats(activeEvents).then(() => { if (!cancelled) setLoading(false) })
+    const eventIds = activeEvents.map(e => e.id)
+    const eventMap = new Map(activeEvents.map(e => [e.id, e.title]))
+
+    // Load stats + extra data in parallel
+    Promise.all([
+      loadStats(activeEvents),
+      // Recent registrations
+      supabase.from('user_events').select('user_id, joined_at, event_id, users!inner(full_name, email)')
+        .in('event_id', eventIds).order('joined_at', { ascending: false }).limit(8),
+      // Total messages
+      supabase.from('messages').select('id', { count: 'exact', head: true }).in('event_id', eventIds),
+      // Total drink orders
+      supabase.from('drink_orders').select('id', { count: 'exact', head: true }).in('event_id', eventIds),
+    ]).then(([, regRes, msgRes, drinkRes]) => {
+      if (cancelled) return
+      // Recent users
+      const regs = (regRes.data || []).map((r: any) => ({
+        id: r.user_id,
+        full_name: r.users?.full_name || '',
+        email: r.users?.email || '',
+        created_at: r.joined_at || '',
+        event_title: eventMap.get(r.event_id) || '',
+      }))
+      setRecentUsers(regs)
+      setTotalMessages(msgRes.count || 0)
+      setTotalDrinks(drinkRes.count || 0)
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [activeEvents.length, selectedDate, selectedVenueId, loadStats])
 
@@ -208,20 +239,82 @@ export default function DashboardPage() {
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
   if (!isAdmin && !isGroupAdmin) return null
 
+  // Quick actions config
+  const quickActions = [
+    { href: '/admin/events', label: 'Eventos', icon: Calendar, color: 'text-primary', bg: 'bg-primary/10' },
+    { href: '/scanner', label: 'Scanner', icon: ScanLine, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+    { href: '/admin/comms', label: 'Mensajes', icon: Megaphone, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+    { href: '/admin/incidents', label: 'Incidencias', icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+    ...(isSuperAdmin ? [
+      { href: '/admin/users', label: 'Usuarios', icon: UsersRound, color: 'text-violet-400', bg: 'bg-violet-500/10' },
+      { href: '/admin/org', label: 'Organizacion', icon: Building2, color: 'text-white-muted', bg: 'bg-white/5' },
+    ] : []),
+  ]
+
+  // Relative time helper
+  const timeAgo = (dateStr: string) => {
+    if (!dateStr) return ''
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'ahora'
+    if (mins < 60) return `hace ${mins}m`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `hace ${hours}h`
+    return `hace ${Math.floor(hours / 24)}d`
+  }
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header with inline selectors */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {feed.length > 0 && <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />}
-          <h1 className="text-xl font-bold text-gradient-primary">Resumen</h1>
+    <div className="space-y-5 md:space-y-6 animate-fade-in">
+      {/* Header */}
+      <div>
+        <div className="flex items-start md:items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl md:text-xl font-bold text-gradient-primary">Centro de control</h1>
+              {feed.length > 0 && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Actividad en tiempo real" />}
+            </div>
+            <p className="text-sm text-white-muted mt-0.5">
+              {selectedDate
+                ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+                : 'Sin eventos'}
+            </p>
+          </div>
+          {/* Desktop: filters inline right */}
+          <div className="hidden md:flex items-center gap-2">
+            {dates.length > 0 && (
+              <select
+                value={selectedDate || ''}
+                onChange={e => { setUserSelectedDate(e.target.value || null); setSelectedVenueId(null) }}
+                className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
+              >
+                {dates.map(d => (
+                  <option key={d} value={d} className="bg-[#1a1a1a]">
+                    {new Date(d + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </option>
+                ))}
+              </select>
+            )}
+            {venuesForDate.length > 0 && (
+              <select
+                value={selectedVenueId || ''}
+                onChange={e => setSelectedVenueId(e.target.value || null)}
+                className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
+              >
+                <option value="" className="bg-[#1a1a1a]">Todos los venues</option>
+                {venuesForDate.map(v => (
+                  <option key={v.id} value={v.id} className="bg-[#1a1a1a]">{v.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Mobile: filters — large touch targets */}
+        <div className="flex md:hidden items-center gap-2.5 mt-3">
           {dates.length > 0 && (
             <select
               value={selectedDate || ''}
               onChange={e => { setUserSelectedDate(e.target.value || null); setSelectedVenueId(null) }}
-              className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
+              className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-black-border bg-white/[0.03] text-white text-sm focus:outline-none focus:border-primary/40"
             >
               {dates.map(d => (
                 <option key={d} value={d} className="bg-[#1a1a1a]">
@@ -234,7 +327,7 @@ export default function DashboardPage() {
             <select
               value={selectedVenueId || ''}
               onChange={e => setSelectedVenueId(e.target.value || null)}
-              className="px-3 py-1.5 rounded-lg border border-black-border bg-transparent text-white text-xs focus:outline-none focus:border-primary/40"
+              className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-black-border bg-white/[0.03] text-white text-sm focus:outline-none focus:border-primary/40"
             >
               <option value="" className="bg-[#1a1a1a]">Todos los venues</option>
               {venuesForDate.map(v => (
@@ -245,83 +338,151 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Quick Actions — desktop only (bottom nav replaces this on mobile) */}
+      <div className="hidden md:flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {quickActions.map(a => (
+          <Link
+            key={a.href}
+            href={a.href}
+            className="flex flex-col items-center gap-1.5 min-w-[80px] py-3 px-2 rounded-xl border border-black-border hover:border-white/10 hover:bg-white/[0.02] transition-all shrink-0 group"
+          >
+            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center transition-all group-hover:scale-110', a.bg)}>
+              <a.icon className={cn('w-5 h-5', a.color)} />
+            </div>
+            <span className="text-[11px] font-medium text-white-muted group-hover:text-white transition-colors">{a.label}</span>
+          </Link>
+        ))}
+      </div>
+
       {activeEvents.length === 0 && !loading && (
         <div className="card p-8 text-center">
           <BarChart3 className="w-10 h-10 text-white-muted mx-auto mb-3" />
-          <p className="text-white-muted">No hay eventos para esta fecha.</p>
+          <p className="text-white-muted text-sm">No hay eventos para esta fecha.</p>
+          <Link href="/admin/events" className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-xl bg-primary/10 text-sm text-primary font-medium active:bg-primary/20 transition-colors">
+            Crear evento <ArrowRight className="w-4 h-4" />
+          </Link>
         </div>
       )}
 
       {activeEvents.length > 0 && (
         <>
-          {/* Global Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Global Stats — 2 cols mobile, 6 cols desktop */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5 md:gap-3">
             <StatCard icon={Users} label="Asistentes" value={totalAttendees} color="text-blue-400" bg="bg-blue-500/10" />
             <StatCard icon={Ticket} label="Entrada" value={`${totalScanned}/${totalTickets}`} color="text-emerald-400" bg="bg-emerald-500/10" />
             <StatCard icon={Radio} label="Grupos" value={groupStats.length} color="text-violet-400" bg="bg-violet-500/10" />
+            <StatCard icon={MessageCircle} label="Mensajes" value={totalMessages} color="text-blue-400" bg="bg-blue-500/10" />
+            <StatCard icon={GlassWater} label="Bebidas" value={totalDrinks} color="text-amber-400" bg="bg-amber-500/10" />
             <StatCard icon={AlertTriangle} label="Incidencias" value={openIncidents} color={openIncidents > 0 ? 'text-red-400' : 'text-white-muted'} bg={openIncidents > 0 ? 'bg-red-500/10' : 'bg-white/5'} />
           </div>
 
-          {/* Groups Grid */}
-          <div>
-            <h2 className="text-base font-bold text-white mb-3">Estado por grupo</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {groupStats.map(g => {
-                const pct = g.total > 0 ? Math.round((g.scanned / g.total) * 100) : 0
-                return (
-                  <div key={g.eventId} className="card p-4 space-y-3">
-                    <div className="flex items-center justify-between">
+          {/* Two-column layout: Groups + Recent Registrations */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-4">
+            {/* Groups — takes 2 cols on desktop */}
+            <div className="lg:col-span-2">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold text-white">Estado por grupo</h2>
+                <Link href="/admin/events" className="text-xs text-white-muted hover:text-primary active:text-primary transition-colors flex items-center gap-1 py-1">
+                  Ver todos <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {groupStats.map(g => {
+                  const pct = g.total > 0 ? Math.round((g.scanned / g.total) * 100) : 0
+                  return (
+                    <div key={g.eventId} className="card p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold text-white">{g.groupName || g.title}</h3>
+                          {g.groupName && g.groupName !== g.title && <p className="text-xs text-white-muted mt-0.5">{g.title}</p>}
+                        </div>
+                        {g.incidents > 0 && (
+                          <span className="text-[11px] font-bold text-red-400 bg-red-500/10 px-2.5 py-1 rounded-full">{g.incidents} inc.</span>
+                        )}
+                      </div>
                       <div>
-                        <h3 className="text-sm font-bold text-white">{g.groupName || g.title}</h3>
-                        {g.groupName && g.groupName !== g.title && <p className="text-[11px] text-white-muted">{g.title}</p>}
+                        <div className="flex justify-between text-xs text-white-muted mb-1.5">
+                          <span>Entrada</span>
+                          <span className="font-medium">{g.scanned}/{g.total} ({pct}%)</span>
+                        </div>
+                        <div className="h-2.5 bg-white/5 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
                       </div>
-                      {g.incidents > 0 && (
-                        <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">{g.incidents} inc.</span>
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-[11px] text-white-muted mb-1">
-                        <span>Entrada</span>
-                        <span>{g.scanned}/{g.total} ({pct}%)</span>
-                      </div>
-                      <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      <div className="flex gap-5 text-xs text-white-muted">
+                        <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {g.attendees}</span>
+                        <span className="flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> {g.messages}</span>
                       </div>
                     </div>
-                    <div className="flex gap-4 text-[11px] text-white-muted">
-                      <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {g.attendees}</span>
-                      <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" /> {g.messages}</span>
-                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Recent Registrations */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <UserPlus className="w-4.5 h-4.5 text-emerald-400" />
+                  Registros recientes
+                </h2>
+                {isSuperAdmin && (
+                  <Link href="/admin/users" className="text-xs text-white-muted hover:text-primary active:text-primary transition-colors flex items-center gap-1 py-1">
+                    Todos <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                )}
+              </div>
+              <div className="card divide-y divide-black-border">
+                {recentUsers.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <Users className="w-8 h-8 text-white-muted mx-auto mb-2" />
+                    <p className="text-white-muted text-sm">Sin registros aun</p>
                   </div>
-                )
-              })}
+                ) : (
+                  recentUsers.map(u => (
+                    <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
+                        <UserPlus className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{u.full_name || u.email}</p>
+                        <p className="text-xs text-white-muted truncate">{u.event_title}</p>
+                      </div>
+                      <span className="text-xs text-white-muted shrink-0">{timeAgo(u.created_at)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Live Feed — visible to all admin roles */}
+          {/* Live Feed */}
           {(isAdmin || isGroupAdmin) && (
             <div>
-              <h2 className="text-base font-bold text-white mb-3">Feed en tiempo real</h2>
-              <div ref={feedRef} className="card max-h-[300px] overflow-y-auto scrollbar-none divide-y divide-black-border">
+              <h2 className="text-base font-bold text-white mb-3 flex items-center gap-2">
+                <Zap className="w-4.5 h-4.5 text-primary" />
+                Feed en tiempo real
+              </h2>
+              <div ref={feedRef} className="card max-h-[250px] md:max-h-[300px] overflow-y-auto scrollbar-none divide-y divide-black-border">
                 {feed.length === 0 ? (
-                  <div className="p-6 text-center">
-                    <Activity className="w-8 h-8 text-white-muted mx-auto mb-2 animate-pulse" />
+                  <div className="p-8 text-center">
+                    <Activity className="w-10 h-10 text-white-muted mx-auto mb-2 animate-pulse" />
                     <p className="text-white-muted text-sm">Esperando actividad...</p>
                   </div>
                 ) : (
                   feed.map(entry => {
                     const { icon: Icon, color, bg } = feedIconMap[entry.type]
                     return (
-                      <div key={entry.id} className="flex items-center gap-3 px-4 py-2.5">
-                        <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center shrink-0', bg)}>
-                          <Icon className={cn('w-3.5 h-3.5', color)} />
+                      <div key={entry.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', bg)}>
+                          <Icon className={cn('w-4 h-4', color)} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-white truncate">{entry.text}</p>
-                          <p className="text-[10px] text-white-muted">{entry.group}</p>
+                          <p className="text-xs text-white-muted mt-0.5">{entry.group}</p>
                         </div>
-                        <span className="text-[10px] text-white-muted shrink-0 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {entry.time}
+                        <span className="text-xs text-white-muted shrink-0 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" /> {entry.time}
                         </span>
                       </div>
                     )
@@ -340,12 +501,16 @@ function StatCard({ icon: Icon, label, value, color, bg }: {
   icon: React.ElementType; label: string; value: string | number; color: string; bg: string
 }) {
   return (
-    <div className="card p-4">
-      <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center mb-2', bg)}>
-        <Icon className={cn('w-4.5 h-4.5', color)} />
+    <div className="card p-3.5 md:p-4">
+      <div className="flex items-center gap-2.5 md:block">
+        <div className={cn('w-9 h-9 md:w-9 md:h-9 rounded-xl flex items-center justify-center md:mb-2 shrink-0', bg)}>
+          <Icon className={cn('w-4.5 h-4.5', color)} />
+        </div>
+        <div className="md:block">
+          <p className="text-xl md:text-2xl font-bold text-white leading-tight">{value}</p>
+          <p className="text-xs md:text-[11px] text-white-muted leading-tight mt-0.5">{label}</p>
+        </div>
       </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="text-[11px] text-white-muted">{label}</p>
     </div>
   )
 }

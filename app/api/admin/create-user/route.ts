@@ -99,19 +99,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Error inesperado al crear usuario' }, { status: 500 })
     }
 
-    // Create profile in users table
-    const { error: profileError } = await supabaseAdmin.from('users').insert({
-      id: newAuthUser.user.id,
-      email: email.toLowerCase().trim(),
-      full_name: fullName || null,
-      gender: gender || null,
-      role,
-      organization_id: callerProfile.organization_id,
-    })
+    // The `handle_new_user` Supabase trigger auto-creates the `public.users` row
+    // when `auth.admin.createUser` runs, so we must UPDATE (not INSERT) to fill in
+    // role, full_name, gender, and organization_id.
+    const { error: profileError } = await supabaseAdmin
+      .from('users')
+      .update({
+        full_name: fullName || null,
+        gender: gender || null,
+        role,
+        organization_id: callerProfile.organization_id,
+      })
+      .eq('id', newAuthUser.user.id)
 
     if (profileError) {
       console.error('[create-user] Profile error:', profileError.message)
-      // Try to clean up the auth user if profile creation fails
+      // Try to clean up the auth user if profile update fails
       await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id).catch(() => {})
       return NextResponse.json({ error: 'Error al crear perfil de usuario: ' + profileError.message }, { status: 500 })
     }

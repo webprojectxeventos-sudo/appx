@@ -93,41 +93,37 @@ export async function POST(request: NextRequest) {
     }
 
     if (mode === 'delete_user') {
-      // Delete ALL related data in dependency order (handles FK constraints)
-      // 1. Votes and reactions (leaf tables)
-      await supabaseAdmin.from('poll_votes').delete().eq('user_id', userId)
-      await supabaseAdmin.from('message_reactions').delete().eq('user_id', userId)
-      await supabaseAdmin.from('playlist_votes').delete().eq('user_id', userId)
+      // Delete ALL related data — parallelized for speed
+      // Step 1: Votes, reactions, and all content in parallel (no FK deps between them)
+      await Promise.all([
+        supabaseAdmin.from('poll_votes').delete().eq('user_id', userId),
+        supabaseAdmin.from('message_reactions').delete().eq('user_id', userId),
+        supabaseAdmin.from('playlist_votes').delete().eq('user_id', userId),
+        supabaseAdmin.from('messages').delete().eq('user_id', userId),
+        supabaseAdmin.from('drink_orders').delete().eq('user_id', userId),
+        supabaseAdmin.from('tickets').delete().eq('user_id', userId),
+        supabaseAdmin.from('playlist_songs').delete().eq('added_by', userId),
+        supabaseAdmin.from('photos').delete().eq('uploaded_by', userId),
+        supabaseAdmin.from('lost_found').delete().eq('user_id', userId),
+        supabaseAdmin.from('push_subscriptions').delete().eq('user_id', userId),
+        supabaseAdmin.from('user_events').delete().eq('user_id', userId),
+        // Nullify references
+        supabaseAdmin.from('access_codes').update({ used_by: null, used_at: null }).eq('used_by', userId),
+        supabaseAdmin.from('tickets').update({ scanned_by: null }).eq('scanned_by', userId),
+        supabaseAdmin.from('incidents').update({ resolved_by: null }).eq('resolved_by', userId),
+      ])
 
-      // 2. Content tables
-      await supabaseAdmin.from('messages').delete().eq('user_id', userId)
-      await supabaseAdmin.from('drink_orders').delete().eq('user_id', userId)
-      await supabaseAdmin.from('tickets').delete().eq('user_id', userId)
-      await supabaseAdmin.from('playlist_songs').delete().eq('added_by', userId)
-      await supabaseAdmin.from('photos').delete().eq('uploaded_by', userId)
-      await supabaseAdmin.from('lost_found').delete().eq('user_id', userId)
-      await supabaseAdmin.from('push_subscriptions').delete().eq('user_id', userId)
-
-      // 3. Membership
-      await supabaseAdmin.from('user_events').delete().eq('user_id', userId)
-
-      // 4. Nullify references that shouldn't cascade-delete the parent record
-      await supabaseAdmin.from('access_codes').update({ used_by: null, used_at: null }).eq('used_by', userId)
-      await supabaseAdmin.from('tickets').update({ scanned_by: null }).eq('scanned_by', userId)
-      await supabaseAdmin.from('incidents').update({ resolved_by: null }).eq('resolved_by', userId)
-
-      // 5. Delete user profile
+      // Step 2: Delete user profile (must happen after all FKs are cleared)
       const { error: profileError } = await supabaseAdmin.from('users').delete().eq('id', userId)
       if (profileError) {
         console.error('[delete-user] Profile delete error:', profileError.message)
         return NextResponse.json({ error: `Error eliminando perfil: ${profileError.message}` }, { status: 500 })
       }
 
-      // 6. Delete auth user
+      // Step 3: Delete auth user
       const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId)
       if (authError) {
         console.error('[delete-user] Auth delete error:', authError.message)
-        // Profile already deleted — log but don't fail
       }
 
       return NextResponse.json({ success: true, mode: 'deleted' })

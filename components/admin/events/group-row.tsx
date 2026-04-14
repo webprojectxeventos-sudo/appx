@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Pencil, Trash2, ArrowRightLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
 import type { Database } from '@/lib/types'
 
@@ -29,7 +30,6 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
     if (editing) inputRef.current?.select()
   }, [editing])
 
-  // Close move dropdown on outside click
   useEffect(() => {
     if (!showMove) return
     const handler = (e: MouseEvent) => {
@@ -51,13 +51,19 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Eliminar "${event.title}"?`)) return
+    if (!confirm(`Eliminar "${event.title}" y todos sus datos?`)) return
     setLoading(true)
-    const { error } = await supabase.from('events').delete().eq('id', event.id)
-    setLoading(false)
-    if (error) { showError('Error al eliminar'); return }
-    success('Grupo eliminado')
-    onRefresh()
+    try {
+      const res = await authFetch('/api/admin/delete-event', { eventId: event.id })
+      const data = await res.json()
+      if (!res.ok) { showError(data.error || 'Error al eliminar'); return }
+      success('Grupo eliminado')
+      onRefresh()
+    } catch {
+      showError('Error de conexion al eliminar')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleMove = async (targetVenueId: string) => {
@@ -76,31 +82,31 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
   }
 
   return (
-    <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg hover:bg-white/[0.03] group transition-colors">
+    <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-white/[0.03] group transition-colors">
       {/* Name */}
       <div className="flex-1 min-w-0">
         {editing ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <input
               ref={inputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={handleSave}
-              className="w-full bg-transparent text-white text-sm border-b border-primary/40 outline-none py-0.5"
+              className="w-full bg-transparent text-white text-sm border-b border-primary/40 outline-none py-1"
               disabled={loading}
             />
-            <button onClick={handleSave} className="text-emerald-400 hover:text-emerald-300 shrink-0">
-              <Check className="w-3.5 h-3.5" />
+            <button onClick={handleSave} className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 shrink-0">
+              <Check className="w-4 h-4" />
             </button>
-            <button onClick={() => { setEditing(false); setEditName(event.title) }} className="text-white-muted hover:text-white shrink-0">
-              <X className="w-3.5 h-3.5" />
+            <button onClick={() => { setEditing(false); setEditName(event.title) }} className="p-1.5 rounded-lg text-white-muted hover:bg-white/5 shrink-0">
+              <X className="w-4 h-4" />
             </button>
           </div>
         ) : (
           <button
             onClick={() => onSelect?.(event)}
-            className="text-sm text-white truncate block text-left hover:text-primary transition-colors cursor-pointer"
+            className="text-sm font-medium text-white truncate block text-left hover:text-primary transition-colors cursor-pointer"
           >
             {event.title}
           </button>
@@ -108,38 +114,37 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
       </div>
 
       {/* Event code badge */}
-      <span className="text-[10px] font-mono text-white-muted bg-white/5 px-1.5 py-0.5 rounded shrink-0">
+      <span className="text-[11px] font-mono text-white-muted bg-white/5 px-2 py-1 rounded-lg shrink-0 tracking-wide">
         {event.event_code}
       </span>
 
-      {/* Actions (always visible on mobile, hover on desktop) */}
-      <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
+      {/* Actions — visible on hover (desktop), always on mobile */}
+      <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
         <button
           onClick={() => { setEditing(true); setEditName(event.title) }}
-          className="p-1 rounded text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+          className="p-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10 transition-colors"
           title="Renombrar"
         >
-          <Pencil className="w-3 h-3" />
+          <Pencil className="w-3.5 h-3.5" />
         </button>
 
-        {/* Move dropdown */}
         {otherVenues.length > 0 && (
           <div className="relative" ref={moveRef}>
             <button
               onClick={() => setShowMove(!showMove)}
-              className="p-1 rounded text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+              className="p-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10 transition-colors"
               title="Mover a otro venue"
             >
-              <ArrowRightLeft className="w-3 h-3" />
+              <ArrowRightLeft className="w-3.5 h-3.5" />
             </button>
             {showMove && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] py-1 rounded-xl border border-black-border bg-black-card shadow-xl">
-                <p className="px-3 py-1.5 text-[10px] text-white-muted uppercase tracking-wider">Mover a...</p>
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[200px] py-1.5 rounded-xl border border-black-border bg-black-card shadow-2xl">
+                <p className="px-4 py-1.5 text-[10px] text-white-muted uppercase tracking-wider font-medium">Mover a...</p>
                 {otherVenues.map(v => (
                   <button
                     key={v.id}
                     onClick={() => handleMove(v.id)}
-                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-white/5 transition-colors"
+                    className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-white/5 active:bg-white/10 transition-colors"
                   >
                     {v.name}
                   </button>
@@ -151,10 +156,10 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
 
         <button
           onClick={handleDelete}
-          className="p-1 rounded text-white-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          className="p-1.5 rounded-lg text-white-muted hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20 transition-colors"
           title="Eliminar"
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>

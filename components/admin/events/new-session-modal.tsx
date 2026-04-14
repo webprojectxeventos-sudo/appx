@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { X, CalendarPlus, Check, Clock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { X, CalendarPlus, Check, Clock, PartyPopper, GraduationCap } from 'lucide-react'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import type { Database } from '@/lib/types'
 
 type Venue = Database['public']['Tables']['venues']['Row']
@@ -12,19 +12,20 @@ interface NewSessionModalProps {
   onClose: () => void
   allVenues: Venue[]
   existingDates: string[]
-  onCreated: (date: string, venueIds: string[], time: string) => void
+  onCreated: (date: string, venueIds: string[], time: string, eventType: 'fiesta' | 'eso') => void
 }
 
 export function NewSessionModal({ open, onClose, allVenues, existingDates, onCreated }: NewSessionModalProps) {
-  // Default date: next Saturday
+  // Default date: next Saturday (local timezone)
   const getNextSaturday = () => {
     const d = new Date()
     d.setDate(d.getDate() + (6 - d.getDay() + 7) % 7 || 7)
-    return d.toISOString().split('T')[0]
+    return toLocalDateKey(d)
   }
 
   const [date, setDate] = useState(getNextSaturday)
   const [time, setTime] = useState('22:00')
+  const [eventType, setEventType] = useState<'fiesta' | 'eso'>('fiesta')
   const [selectedVenueIds, setSelectedVenueIds] = useState<Set<string>>(new Set())
 
   const dateExists = existingDates.includes(date)
@@ -40,7 +41,7 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
 
   const handleSubmit = () => {
     if (!date) return
-    onCreated(date, Array.from(selectedVenueIds), time)
+    onCreated(date, Array.from(selectedVenueIds), time, eventType)
     setSelectedVenueIds(new Set())
     onClose()
   }
@@ -89,6 +90,39 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
           {dateExists && (
             <p className="text-xs text-amber-400 -mt-2">Esta fecha ya tiene eventos — se añadirán los venues seleccionados</p>
           )}
+
+          {/* Event type */}
+          <div>
+            <label className="block text-sm font-medium text-white-muted mb-1.5">Tipo de evento</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEventType('fiesta')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all border',
+                  eventType === 'fiesta'
+                    ? 'bg-primary/10 border-primary/40 text-primary'
+                    : 'border-black-border text-white-muted hover:border-white/20'
+                )}
+              >
+                <PartyPopper className="w-4 h-4" />
+                Fiesta
+                <span className="text-[10px] opacity-60">(con alcohol)</span>
+              </button>
+              <button
+                onClick={() => setEventType('eso')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all border',
+                  eventType === 'eso'
+                    ? 'bg-blue-500/10 border-blue-500/40 text-blue-400'
+                    : 'border-black-border text-white-muted hover:border-white/20'
+                )}
+              >
+                <GraduationCap className="w-4 h-4" />
+                ESO
+                <span className="text-[10px] opacity-60">(sin alcohol)</span>
+              </button>
+            </div>
+          </div>
 
           {/* Venue selection */}
           <div>

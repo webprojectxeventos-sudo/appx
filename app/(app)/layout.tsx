@@ -177,7 +177,7 @@ const FULL_SCREEN_PAGES = ['/chat']
 const ALLOWED_BEFORE_SURVEY = ['/polls', '/profile', '/promoter']
 
 function AppLayoutContent({ children }: { children: ReactNode }) {
-  const { loading, initialized, user, event, isStaff } = useAuth()
+  const { loading, initialized, user, event, isStaff, isAdmin } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [needsSurvey, setNeedsSurvey] = useState(false)
@@ -190,6 +190,13 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     }
   }, [initialized, user, router])
 
+  // Admin guard — admins should use the admin panel, not the attendee view
+  useEffect(() => {
+    if (initialized && !loading && isAdmin) {
+      router.replace('/admin/dashboard')
+    }
+  }, [initialized, loading, isAdmin, router])
+
   // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {
     if (!initialized || !user?.id || !event?.id || isStaff) return
@@ -198,7 +205,11 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     // Check sessionStorage cache first to avoid repeated queries
     const cacheKey = `drink_order_${event.id}_${user.id}`
     const cached = sessionStorage.getItem(cacheKey)
-    if (cached === 'done') return // Already completed, no redirect needed
+    if (cached === 'done') {
+      // Cache says done — make sure needsSurvey is false so redirects stop
+      setNeedsSurvey(false)
+      return
+    }
 
     const check = async () => {
       const { count } = await supabase
@@ -210,6 +221,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
       const hasOrder = (count || 0) > 0
       if (hasOrder) {
         sessionStorage.setItem(cacheKey, 'done')
+        setNeedsSurvey(false)
       } else {
         setNeedsSurvey(true)
       }
@@ -218,14 +230,34 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     return () => { cancelled = true }
   }, [initialized, user?.id, event?.id, isStaff])
 
+  // Listen for drink-order-completed events dispatched by the polls page
+  // so the layout can release the redirect guard immediately after submit.
+  useEffect(() => {
+    const handler = () => setNeedsSurvey(false)
+    window.addEventListener('drink-order-done', handler)
+    return () => window.removeEventListener('drink-order-done', handler)
+  }, [])
+
   // Redirect to polls if survey not completed (non-blocking — page already visible)
   useEffect(() => {
     if (!needsSurvey) return
+
+    // Re-check sessionStorage — it may have been set to 'done' by the polls
+    // page after the user submitted. Without this, needsSurvey would stay
+    // stuck on true and trap the user on /polls after their first submit.
+    if (user?.id && event?.id) {
+      const cacheKey = `drink_order_${event.id}_${user.id}`
+      if (sessionStorage.getItem(cacheKey) === 'done') {
+        setNeedsSurvey(false)
+        return
+      }
+    }
+
     const isAllowed = ALLOWED_BEFORE_SURVEY.some(p => pathname === p || pathname.startsWith(p + '/'))
     if (!isAllowed) {
       router.replace('/polls')
     }
-  }, [needsSurvey, pathname, router])
+  }, [needsSurvey, pathname, router, user?.id, event?.id])
 
   const isFullScreen = FULL_SCREEN_PAGES.some(
     (p) => pathname === p || pathname.startsWith(p + '/')

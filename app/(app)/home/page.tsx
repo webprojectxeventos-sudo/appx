@@ -58,7 +58,7 @@ function BoltIcon() {
     </svg>
   )
 }
-import { cn } from '@/lib/utils'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { QRTicketCard } from '@/components/qr-ticket'
@@ -276,7 +276,7 @@ export default function HomePage() {
     if (!venue?.latitude || !venue?.longitude || !event?.date) return
     const daysUntil = (new Date(event.date).getTime() - Date.now()) / 86400000
     if (daysUntil < 0 || daysUntil > 14) return // forecast limit 14 days
-    const dateStr = new Date(event.date).toISOString().split('T')[0]
+    const dateStr = toLocalDateKey(event.date)
     fetch(`https://api.open-meteo.com/v1/forecast?latitude=${venue.latitude}&longitude=${venue.longitude}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Madrid&start_date=${dateStr}&end_date=${dateStr}`)
       .then(r => r.json())
       .then(data => {
@@ -311,6 +311,49 @@ export default function HomePage() {
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const formatTime = (d: string) => new Date(d).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+  // Authorization download (for minors) — ESO or Bachillerato based on group_name
+  const isESO = (event?.group_name || '').toLowerCase().includes('eso')
+  const authPdf = isESO ? '/autorizacion-eso.pdf' : '/autorizacion-bachillerato.pdf'
+  const authLabel = isESO ? 'Autorizacion fiesta ESO' : 'Autorizacion fiesta Bachillerato'
+
+  // Download handler that works inside iOS WKWebView (Capacitor).
+  // Uses navigator.share() with File to trigger the native share sheet
+  // (so user can save to Files, send via WhatsApp, etc.) and falls back
+  // to a blob-URL download on the web.
+  const handleDownloadAuth = async () => {
+    try {
+      const res = await fetch(authPdf)
+      const blob = await res.blob()
+      const fileName = `${authLabel}.pdf`
+      const file = new File([blob], fileName, { type: 'application/pdf' })
+
+      // Prefer native share sheet when available (iOS/Android)
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean }
+      if (nav.canShare && nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], title: authLabel })
+          return
+        } catch (err: unknown) {
+          // User cancelled — don't fall through to blob download
+          if (err instanceof Error && err.name === 'AbortError') return
+        }
+      }
+
+      // Fallback: blob-URL download (web browsers)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch {
+      // Last-resort fallback: open in new tab
+      window.open(authPdf, '_blank', 'noopener,noreferrer')
+    }
+  }
   // Stable timestamp (initialized once via state, avoids impure render)
   const [now] = useState(() => Date.now())
   const timeAgo = (d: string) => {
@@ -428,9 +471,6 @@ export default function HomePage() {
       {(() => {
         const hoursUntil = event.date ? (new Date(event.date).getTime() - Date.now()) / 3600000 : Infinity
         if (hoursUntil <= 0 || hoursUntil > 24) return null
-        const isESO = (event.group_name || '').toLowerCase().includes('eso')
-        const authPdf = isESO ? '/autorizacion-eso.pdf' : '/autorizacion-bachillerato.pdf'
-        const authLabel = isESO ? 'Autorizacion fiesta ESO' : 'Autorizacion fiesta Bachillerato'
         const items = [
           { id: 'dni', label: 'DNI / Documento de identidad', sub: 'Imprescindible para entrar' },
           { id: 'entrada', label: 'Entrada', sub: qrCode ? 'Ya tienes tu QR listo' : 'Asegurate de tener tu entrada', auto: !!qrCode },
@@ -499,10 +539,9 @@ export default function HomePage() {
             </div>
 
             {/* Download authorization */}
-            <a
-              href={authPdf}
-              download
-              className="flex items-center gap-3 w-full p-3 rounded-xl bg-primary/10 border border-primary/20 active:scale-[0.98] transition-transform"
+            <button
+              onClick={handleDownloadAuth}
+              className="flex items-center gap-3 w-full p-3 rounded-xl bg-primary/10 border border-primary/20 active:scale-[0.98] transition-transform text-left"
             >
               <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
                 <FileDown className="w-4 h-4 text-primary" />
@@ -511,7 +550,7 @@ export default function HomePage() {
                 <p className="text-sm font-medium text-white">Descargar autorizacion</p>
                 <p className="text-[10px] text-white-muted">{authLabel} — PDF</p>
               </div>
-            </a>
+            </button>
           </div>
         )
       })()}
@@ -630,6 +669,23 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Authorization download — always visible (for minors) */}
+      <button
+        onClick={handleDownloadAuth}
+        className="card p-4 flex items-center gap-3 w-full text-left active:scale-[0.98] transition-transform border-primary/15 hover:border-primary/30"
+      >
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+          <FileDown className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-white">Autorizacion para menores</p>
+          <p className="text-[11px] text-white-muted leading-snug">
+            {authLabel} — descarga, firma e imprime
+          </p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-white-muted flex-shrink-0" />
+      </button>
 
       {/* Weather forecast */}
       {weather && (() => {

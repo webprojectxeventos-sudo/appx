@@ -115,6 +115,20 @@ export default function UsersPage() {
   const [showCreatePassword, setShowCreatePassword] = useState(false)
   const [creatingUser, setCreatingUser] = useState(false)
 
+  // Release-code modal (for users who registered with wrong email)
+  const [showReleaseModal, setShowReleaseModal] = useState(false)
+  const [releaseCode, setReleaseCode] = useState('')
+  const [releaseLookup, setReleaseLookup] = useState<{
+    code: string
+    isUsed: boolean
+    eventTitle?: string
+    usedAt?: string
+    user?: { id: string; email: string | null; fullName: string | null; role: string | null }
+  } | null>(null)
+  const [releaseError, setReleaseError] = useState('')
+  const [releaseLoading, setReleaseLoading] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   // Fetch all org events for event filter
@@ -137,14 +151,25 @@ export default function UsersPage() {
     setLoading(true)
 
     try {
-      // If filtering by event, first get user IDs from user_events
+      // If filtering by event, get user IDs from BOTH user_events AND users.event_id
       let eventUserIds: string[] | null = null
       if (eventFilter !== 'all') {
+        // Check user_events junction table
         const { data: ueData } = await supabase
           .from('user_events')
           .select('user_id')
           .eq('event_id', eventFilter)
-        eventUserIds = (ueData || []).map(ue => ue.user_id)
+        const fromJunction = new Set((ueData || []).map(ue => ue.user_id))
+
+        // Also check users.event_id (registration sets this but may skip user_events)
+        const { data: directData } = await supabase
+          .from('users')
+          .select('id')
+          .eq('event_id', eventFilter)
+          .eq('organization_id', organization.id)
+        for (const u of (directData || [])) fromJunction.add(u.id)
+
+        eventUserIds = [...fromJunction]
         if (eventUserIds.length === 0) {
           setUsers([])
           setTotalCount(0)
@@ -352,7 +377,7 @@ export default function UsersPage() {
     }
   }
 
-  // Delete users (bulk)
+  // Delete users (bulk) — parallel in batches of 5
   const handleBulkDelete = async () => {
     if (selectedUsers.size === 0) return
     setDeleting(true)
@@ -360,24 +385,29 @@ export default function UsersPage() {
     let deleted = 0
     let failed = 0
     let lastError = ''
-    for (const userId of ids) {
-      try {
-        const res = await authFetch('/api/admin/delete-user', {
-          userId,
-          mode: 'delete_user',
+
+    // Process in parallel batches of 5
+    const BATCH_SIZE = 5
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const batch = ids.slice(i, i + BATCH_SIZE)
+      const results = await Promise.allSettled(
+        batch.map(async (userId) => {
+          const res = await authFetch('/api/admin/delete-user', {
+            userId,
+            mode: 'delete_user',
+          })
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}))
+            throw new Error(data.error || `HTTP ${res.status}`)
+          }
         })
-        if (res.ok) {
-          deleted++
-        } else {
-          failed++
-          const data = await res.json().catch(() => ({}))
-          lastError = data.error || `HTTP ${res.status}`
-        }
-      } catch (err) {
-        failed++
-        lastError = err instanceof Error ? err.message : 'Error de conexion'
+      )
+      for (const r of results) {
+        if (r.status === 'fulfilled') deleted++
+        else { failed++; lastError = r.reason?.message || 'Error' }
       }
     }
+
     if (deleted > 0) success(`${deleted} usuario${deleted > 1 ? 's' : ''} eliminado${deleted > 1 ? 's' : ''}`)
     if (failed > 0) showError(`${failed} no se pudieron eliminar: ${lastError}`)
     setSelectedUsers(new Set())
@@ -483,6 +513,55 @@ export default function UsersPage() {
     }
   }
 
+  // Release-code lookup (GET)
+  const handleLookupCode = async () => {
+    const clean = releaseCode.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (clean.length !== 8) {
+      setReleaseError('El codigo debe tener 8 caracteres')
+      return
+    }
+    setReleaseError('')
+    setReleaseLookup(null)
+    setReleaseLoading(true)
+    try {
+      const res = await authFetch(`/api/admin/release-code?code=${encodeURIComponent(clean)}`, undefined, { method: 'GET' })
+      const data = await res.json()
+      if (!res.ok) {
+        setReleaseError(data.error || 'No se pudo buscar el codigo')
+        return
+      }
+      setReleaseLookup(data)
+    } catch (err: unknown) {
+      setReleaseError(err instanceof Error ? err.message : 'Error de conexion')
+    } finally {
+      setReleaseLoading(false)
+    }
+  }
+
+  // Release-code confirm (POST)
+  const handleReleaseCode = async () => {
+    if (!releaseLookup?.isUsed) return
+    setReleasing(true)
+    try {
+      const res = await authFetch('/api/admin/release-code', { code: releaseLookup.code })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al liberar el codigo')
+        return
+      }
+      success(`Codigo ${releaseLookup.code} liberado y cuenta borrada`)
+      setShowReleaseModal(false)
+      setReleaseCode('')
+      setReleaseLookup(null)
+      setReleaseError('')
+      await fetchUsers()
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
+    } finally {
+      setReleasing(false)
+    }
+  }
+
   // Export CSV
   const handleExportCSV = () => {
     const headers = 'Nombre,Email,Rol,Genero,Creado\n'
@@ -546,6 +625,14 @@ export default function UsersPage() {
             <Plus className="w-4 h-4" />
             <span className="hidden md:inline">Crear Usuario</span>
             <span className="md:hidden">Crear</span>
+          </button>
+          <button
+            onClick={() => setShowReleaseModal(true)}
+            className="btn-ghost text-sm text-amber-400 hover:bg-amber-500/5"
+            title="Liberar codigo usado con email equivocado"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span className="hidden md:inline">Liberar codigo</span>
           </button>
           <button onClick={handleExportCSV} className="btn-ghost text-sm text-primary hover:bg-primary/5">
             <Download className="w-4 h-4" />
@@ -1234,6 +1321,150 @@ export default function UsersPage() {
                 <button onClick={resetCreateModal} className="btn-ghost text-sm py-2.5 px-4">
                   Cancelar
                 </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Release-code modal */}
+      {showReleaseModal && (
+        <>
+          <div
+            className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm"
+            onClick={() => {
+              if (releasing || releaseLoading) return
+              setShowReleaseModal(false)
+              setReleaseCode('')
+              setReleaseLookup(null)
+              setReleaseError('')
+            }}
+          />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-background border border-black-border rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-black-border">
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-amber-400" />
+                  Liberar codigo
+                </h2>
+                <button
+                  onClick={() => {
+                    if (releasing || releaseLoading) return
+                    setShowReleaseModal(false)
+                    setReleaseCode('')
+                    setReleaseLookup(null)
+                    setReleaseError('')
+                  }}
+                  className="p-2 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <p className="text-[11px] text-white-muted leading-relaxed">
+                  Introduce el codigo de acceso de un usuario que se registro con un email incorrecto.
+                  Se borrara su cuenta y se liberara el codigo para que pueda registrarse de nuevo.
+                </p>
+
+                <div>
+                  <label className="block text-xs text-white-muted mb-1.5">Codigo de acceso</label>
+                  <input
+                    type="text"
+                    value={releaseCode}
+                    onChange={(e) => {
+                      const clean = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+                      const formatted = clean.length > 4 ? clean.slice(0, 4) + '-' + clean.slice(4) : clean
+                      setReleaseCode(formatted)
+                      setReleaseLookup(null)
+                      setReleaseError('')
+                    }}
+                    placeholder="XXXX-XXXX"
+                    maxLength={9}
+                    className="w-full px-3 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-center text-lg tracking-[0.25em] font-mono uppercase focus:outline-none focus:border-primary/40"
+                    autoFocus
+                    disabled={releasing}
+                  />
+                </div>
+
+                {!releaseLookup && (
+                  <button
+                    onClick={handleLookupCode}
+                    disabled={releaseLoading || releaseCode.replace('-', '').length !== 8}
+                    className="btn-ghost w-full text-sm py-2.5 disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {releaseLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {releaseLoading ? 'Buscando...' : 'Buscar codigo'}
+                  </button>
+                )}
+
+                {releaseError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                    <p className="text-xs text-red-400">{releaseError}</p>
+                  </div>
+                )}
+
+                {releaseLookup && !releaseLookup.isUsed && (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <p className="text-xs text-emerald-400 font-medium mb-1">Este codigo ya esta libre</p>
+                    <p className="text-[11px] text-white-muted">
+                      El codigo <span className="font-mono text-white">{releaseLookup.code}</span> pertenece al evento{' '}
+                      <span className="text-white">{releaseLookup.eventTitle}</span> y no tiene usuario asignado. Puede usarse para registrarse.
+                    </p>
+                  </div>
+                )}
+
+                {releaseLookup && releaseLookup.isUsed && releaseLookup.user && (
+                  <div className="p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/20 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-amber-300 font-medium">Codigo usado por:</p>
+                        <p className="text-sm text-white font-medium truncate">
+                          {releaseLookup.user.fullName || '(sin nombre)'}
+                        </p>
+                        <p className="text-[11px] text-white-muted truncate">{releaseLookup.user.email || '(sin email)'}</p>
+                        <p className="text-[10px] text-white-muted mt-1">
+                          Evento: <span className="text-white/70">{releaseLookup.eventTitle}</span>
+                        </p>
+                        {releaseLookup.usedAt && (
+                          <p className="text-[10px] text-white-muted">
+                            Usado: {new Date(releaseLookup.usedAt).toLocaleString('es-ES')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-red-400/80 pt-1 border-t border-white/5">
+                      Al liberar se borrara esta cuenta y todos sus datos. Esta accion no se puede deshacer.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 p-4 border-t border-black-border">
+                <button
+                  onClick={() => {
+                    if (releasing || releaseLoading) return
+                    setShowReleaseModal(false)
+                    setReleaseCode('')
+                    setReleaseLookup(null)
+                    setReleaseError('')
+                  }}
+                  disabled={releasing}
+                  className="btn-ghost text-sm py-2.5 px-4"
+                >
+                  Cancelar
+                </button>
+                {releaseLookup?.isUsed && (
+                  <button
+                    onClick={handleReleaseCode}
+                    disabled={releasing}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {releasing && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {releasing ? 'Liberando...' : 'Liberar y borrar cuenta'}
+                  </button>
+                )}
               </div>
             </div>
           </div>

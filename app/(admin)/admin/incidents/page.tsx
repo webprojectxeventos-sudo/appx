@@ -41,7 +41,7 @@ const STATUS_CONFIG = {
 }
 
 export default function IncidentsPage() {
-  const { user, organization, isSuperAdmin, initialized } = useAuth()
+  const { user, organization, isSuperAdmin, isAdmin, isGroupAdmin, initialized } = useAuth()
   const { allEvents: events } = useAdminSelection()
   const { error: showError, success } = useToast()
   const [incidents, setIncidents] = useState<IncidentWithEvent[]>([])
@@ -162,7 +162,7 @@ export default function IncidentsPage() {
   const inputClass = 'w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors'
 
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
-  if (!isSuperAdmin) return null
+  if (!isAdmin && !isGroupAdmin) return null
 
   if (loading) {
     return (
@@ -320,9 +320,11 @@ export default function IncidentsPage() {
                   <button onClick={() => updateStatus(inc.id, 'resolved')} className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg hover:bg-emerald-500/15 transition-colors flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" /> Resolver
                   </button>
-                  <button onClick={() => updateStatus(inc.id, 'dismissed')} className="text-[11px] font-medium text-gray-400 bg-gray-500/10 px-3 py-1.5 rounded-lg hover:bg-gray-500/15 transition-colors flex items-center gap-1">
-                    <XCircle className="w-3 h-3" /> Descartar
-                  </button>
+                  {!isGroupAdmin && (
+                    <button onClick={() => updateStatus(inc.id, 'dismissed')} className="text-[11px] font-medium text-gray-400 bg-gray-500/10 px-3 py-1.5 rounded-lg hover:bg-gray-500/15 transition-colors flex items-center gap-1">
+                      <XCircle className="w-3 h-3" /> Descartar
+                    </button>
+                  )}
                 </div>
               )}
             </div>

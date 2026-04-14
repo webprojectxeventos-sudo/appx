@@ -9,17 +9,19 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
 import { Pagination } from '@/components/admin/pagination'
-import { cn } from '@/lib/utils'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import {
-  Send, Radio, MessageCircle, Shield, Trash2, Pin, PinOff, VolumeX, Volume2,
-  Check, FileText, Bell, BellRing, Clock, Users,
+  Send, Radio, MessageCircle, Shield, ShieldOff, Trash2, Pin, PinOff, VolumeX, Volume2,
+  Check, FileText, Bell, BellRing, Clock, Users, ChevronDown,
 } from 'lucide-react'
+import { BanModal } from '@/components/admin/attendees/ban-modal'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
 type MessageTemplate = Database['public']['Tables']['message_templates']['Row']
 type BroadcastLog = Database['public']['Tables']['broadcast_log']['Row']
+type ChatBan = Database['public']['Tables']['chat_bans']['Row']
 
 interface MessageWithUser extends Message {
   userName: string
@@ -29,10 +31,6 @@ interface MessageWithUser extends Message {
 type ActiveTab = 'broadcast' | 'moderation'
 
 const PAGE_SIZE = 30
-
-function formatDateStr(dateStr: string): string {
-  return new Date(dateStr).toISOString().split('T')[0]
-}
 
 export default function CommsPage() {
   const { user, organization, isSuperAdmin, isAdmin, isGroupAdmin, initialized } = useAuth()
@@ -63,6 +61,9 @@ export default function CommsPage() {
   const [modTotal, setModTotal] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
+  const [bannedUsers, setBannedUsers] = useState<Map<string, ChatBan>>(new Map())
+  const [showBans, setShowBans] = useState(false)
+  const [banTarget, setBanTarget] = useState<{ userId: string; userName: string; eventIds: string[] } | null>(null)
   const [modLoading, setModLoading] = useState(false)
 
   const userCacheRef = useRef<Record<string, { name: string; avatar: string | null }>>({})
@@ -108,18 +109,18 @@ export default function CommsPage() {
   }, [organization?.id])
 
   // Derived: dates
-  const dates = [...new Set(allEvents.map(e => formatDateStr(e.date)))].sort()
+  const dates = [...new Set(allEvents.map(e => toLocalDateKey(e.date)))].sort()
 
   // Auto-select date
   useEffect(() => {
     if (selectedDate && dates.includes(selectedDate)) return
     if (dates.length === 0) { setSelectedDate(null); return }
-    const today = new Date().toISOString().split('T')[0]
+    const today = toLocalDateKey(new Date())
     setSelectedDate(dates.find(d => d >= today) || dates[dates.length - 1])
   }, [dates, selectedDate])
 
   // Events for date
-  const eventsForDate = allEvents.filter(e => selectedDate && formatDateStr(e.date) === selectedDate)
+  const eventsForDate = allEvents.filter(e => selectedDate && toLocalDateKey(e.date) === selectedDate)
 
   // Venues for date
   const venueIdsForDate = new Set(eventsForDate.map(e => e.venue_id).filter(Boolean))
@@ -154,7 +155,7 @@ export default function CommsPage() {
     setModLoading(true)
     try {
       const eventIds = activeEvents.map(e => e.id)
-      let query = supabase.from('messages').select('*', { count: 'exact' }).in('event_id', eventIds).order('created_at', { ascending: false })
+      let query = supabase.from('messages').select('*', { count: 'exact' }).in('event_id', eventIds).is('deleted_at', null).order('created_at', { ascending: false })
       if (modSearch.trim()) query = query.ilike('content', `%${modSearch.trim()}%`)
       const from = (modPage - 1) * PAGE_SIZE
       query = query.range(from, from + PAGE_SIZE - 1)
@@ -173,15 +174,23 @@ export default function CommsPage() {
   useEffect(() => { fetchModMessages() }, [fetchModMessages])
   useEffect(() => { setModPage(1) }, [modSearch])
 
-  // Muted users
-  const fetchMutedUsers = useCallback(async () => {
+  // Muted users + banned users
+  const fetchMutedAndBanned = useCallback(async () => {
     const eventIds = activeEvents.map(e => e.id)
     if (eventIds.length === 0) return
-    const { data } = await supabase.from('user_events').select('user_id').in('event_id', eventIds).eq('is_muted', true)
-    if (data) setMutedUsers(new Set(data.map(d => d.user_id)))
+    const [mutedRes, bannedRes] = await Promise.all([
+      supabase.from('user_events').select('user_id').in('event_id', eventIds).eq('is_muted', true),
+      supabase.from('chat_bans').select('*').in('event_id', eventIds).eq('is_active', true),
+    ])
+    if (mutedRes.data) setMutedUsers(new Set(mutedRes.data.map(d => d.user_id)))
+    if (bannedRes.data) {
+      const map = new Map<string, ChatBan>()
+      bannedRes.data.forEach(b => map.set(b.user_id, b))
+      setBannedUsers(map)
+    }
   }, [activeEvents.length])
 
-  useEffect(() => { if (activeTab === 'moderation') fetchMutedUsers() }, [activeTab, fetchMutedUsers])
+  useEffect(() => { if (activeTab === 'moderation') fetchMutedAndBanned() }, [activeTab, fetchMutedAndBanned])
 
   // Broadcast handlers
   const toggleEvent = (id: string) => setSelectedEventIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -222,11 +231,25 @@ export default function CommsPage() {
 
   // Moderation actions
   const handleDeleteMsg = async (msgId: string) => {
-    const { error } = await supabase.from('messages').delete().eq('id', msgId)
+    // Soft-delete: mark as deleted with audit trail
+    const { error } = await supabase.from('messages').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: user?.id || null,
+    }).eq('id', msgId)
     if (error) { showError('Error al eliminar'); return }
     success('Eliminado')
     setConfirmDelete(null)
     fetchModMessages()
+  }
+
+  // Unban user
+  const handleUnban = async (userId: string) => {
+    const ban = bannedUsers.get(userId)
+    if (!ban) return
+    const { error } = await supabase.from('chat_bans').update({ is_active: false }).eq('id', ban.id)
+    if (error) { showError('Error al desbanear'); return }
+    setBannedUsers(prev => { const next = new Map(prev); next.delete(userId); return next })
+    success('Ban eliminado')
   }
 
   const handleTogglePin = async (msg: MessageWithUser) => {
@@ -374,8 +397,9 @@ export default function CommsPage() {
             <div className="space-y-2">
               {modMessages.map(msg => {
                 const isMuted = mutedUsers.has(msg.user_id)
+                const isBanned = bannedUsers.has(msg.user_id)
                 return (
-                  <div key={msg.id} className={cn('card p-4', msg.is_pinned && 'border-amber-400/20')}>
+                  <div key={msg.id} className={cn('card p-4', msg.is_pinned && 'border-amber-400/20', isBanned && 'border-red-500/15')}>
                     <div className="flex items-start gap-3">
                       {msg.userAvatar ? (
                         <Image src={msg.userAvatar} alt="" width={36} height={36} className="w-9 h-9 rounded-full object-cover shrink-0" />
@@ -385,25 +409,35 @@ export default function CommsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="text-sm font-medium text-white">{msg.userName}</span>
-                          {isMuted && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400">Silenciado</span>}
+                          {isBanned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 font-bold">BANEADO</span>}
+                          {isMuted && !isBanned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">Silenciado</span>}
                           {msg.is_pinned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400">Fijado</span>}
                           <span className="text-[10px] text-white-muted ml-auto">{formatDate(msg.created_at)}</span>
                         </div>
                         <p className="text-sm text-white/80 whitespace-pre-wrap break-words">{msg.content}</p>
-                        <div className="flex items-center gap-1.5 mt-2">
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                           <button onClick={() => handleTogglePin(msg)} className={cn('text-[11px] font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors', msg.is_pinned ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-white-muted hover:bg-white/10')}>
                             {msg.is_pinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />} {msg.is_pinned ? 'Desfijar' : 'Fijar'}
                           </button>
                           <button onClick={() => handleToggleMute(msg.user_id)} className={cn('text-[11px] font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors', isMuted ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white-muted hover:bg-white/10')}>
                             {isMuted ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />} {isMuted ? 'Desilenciar' : 'Silenciar'}
                           </button>
+                          {isBanned ? (
+                            <button onClick={() => handleUnban(msg.user_id)} className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/15 flex items-center gap-1 transition-colors">
+                              <ShieldOff className="w-3 h-3" /> Desbanear
+                            </button>
+                          ) : (
+                            <button onClick={() => setBanTarget({ userId: msg.user_id, userName: msg.userName, eventIds: activeEvents.map(e => e.id) })} className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-white/5 text-white-muted hover:bg-red-500/10 hover:text-red-400 flex items-center gap-1 transition-colors">
+                              <Shield className="w-3 h-3" /> Banear
+                            </button>
+                          )}
                           {confirmDelete === msg.id ? (
                             <div className="flex gap-1 ml-auto">
                               <button onClick={() => handleDeleteMsg(msg.id)} className="text-[11px] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400">Confirmar</button>
                               <button onClick={() => setConfirmDelete(null)} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-white-muted">Cancelar</button>
                             </div>
                           ) : (
-                            <button onClick={() => setConfirmDelete(msg.id)} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-red-400 hover:bg-red-500/10 flex items-center gap-1 ml-auto">
+                            <button onClick={() => setConfirmDelete(msg.id)} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-red-400 hover:bg-red-500/10 flex items-center gap-1 ml-auto transition-colors">
                               <Trash2 className="w-3 h-3" /> Eliminar
                             </button>
                           )}
@@ -417,8 +451,58 @@ export default function CommsPage() {
           )}
 
           <Pagination currentPage={modPage} totalPages={modTotalPages} onPageChange={setModPage} />
+
+          {/* Active bans section */}
+          {bannedUsers.size > 0 && (
+            <div className="card overflow-hidden">
+              <button
+                onClick={() => setShowBans(!showBans)}
+                className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium text-white">
+                  <Shield className="w-4 h-4 text-red-400" />
+                  Bans activos ({bannedUsers.size})
+                </span>
+                <ChevronDown className={cn('w-4 h-4 text-white-muted transition-transform', showBans && 'rotate-180')} />
+              </button>
+              {showBans && (
+                <div className="border-t border-black-border divide-y divide-black-border">
+                  {[...bannedUsers.entries()].map(([userId, ban]) => (
+                    <div key={ban.id} className="flex items-center justify-between px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-white truncate">{userCacheRef.current[userId]?.name || userId.slice(0, 8)}</p>
+                        <p className="text-[10px] text-white-muted mt-0.5">
+                          {ban.reason && <span className="mr-2">{ban.reason}</span>}
+                          {ban.expires_at
+                            ? `Expira: ${new Date(ban.expires_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                            : 'Permanente'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleUnban(userId)}
+                        className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/15 flex items-center gap-1 shrink-0 transition-colors"
+                      >
+                        <ShieldOff className="w-3 h-3" /> Quitar ban
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
+
+      {/* Ban Modal */}
+      <BanModal
+        open={!!banTarget}
+        onClose={() => setBanTarget(null)}
+        userId={banTarget?.userId || ''}
+        userName={banTarget?.userName || ''}
+        eventIds={banTarget?.eventIds || []}
+        bannedBy={user?.id || ''}
+        onBanned={fetchMutedAndBanned}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { toLocalDateKey } from '@/lib/utils'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
@@ -85,12 +86,12 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
         const savedVenue = sessionStorage.getItem('admin_venue')
         const savedEvent = sessionStorage.getItem('admin_event')
 
-        if (savedDate && evData?.some(e => formatDate(e.date) === savedDate)) {
+        if (savedDate && evData?.some(e => toLocalDateKey(e.date) === savedDate)) {
           setSelectedDate(savedDate)
           if (savedVenue) setSelectedVenueId(savedVenue)
           if (savedEvent) setSelectedEventId(savedEvent)
         } else if (evData && evData.length > 0) {
-          const firstDate = formatDate(evData[0].date)
+          const firstDate = toLocalDateKey(evData[0].date)
           setSelectedDate(firstDate)
         }
       }
@@ -108,13 +109,13 @@ export function AdminSelectionProvider({ children }: { children: ReactNode }) {
 
   // Derived: unique dates (memoized to avoid new arrays every render)
   const dates = useMemo(
-    () => [...new Set(allOrgEvents.map(e => formatDate(e.date)))].sort().reverse(),
+    () => [...new Set(allOrgEvents.map(e => toLocalDateKey(e.date)))].sort().reverse(),
     [allOrgEvents]
   )
 
   // Derived: events for selected date
   const eventsForDate = useMemo(
-    () => allOrgEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate),
+    () => allOrgEvents.filter(e => selectedDate && toLocalDateKey(e.date) === selectedDate),
     [allOrgEvents, selectedDate]
   )
 
@@ -217,10 +218,4 @@ export function useAdminSelection() {
     throw new Error('useAdminSelection must be used within an AdminSelectionProvider')
   }
   return context
-}
-
-// Normalize event date to YYYY-MM-DD string
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toISOString().split('T')[0]
 }

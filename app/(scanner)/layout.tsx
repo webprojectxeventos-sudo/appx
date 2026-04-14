@@ -3,12 +3,14 @@
 import React, { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { ErrorBoundary } from '@/components/error-boundary'
 
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
-  const { user, profile, loading, initialized, isStaff } = useAuth()
+  const { user, profile, loading, initialized, isStaff, isAdmin, isGroupAdmin } = useAuth()
+  const canGoBackToAdmin = isAdmin || isGroupAdmin
 
   useEffect(() => {
     if (!initialized) return
@@ -53,6 +55,16 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-black-border bg-[#0e0e0e]/90 backdrop-blur-xl px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
+          {canGoBackToAdmin && (
+            <button
+              onClick={() => router.push('/admin/dashboard')}
+              className="p-1.5 -ml-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+              title="Volver al panel"
+              aria-label="Volver al panel"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <Image src="/logo.png" alt="Project X" width={28} height={28} className="rounded-lg" />
           <h1 className="font-bold text-sm text-white">Scanner</h1>
         </div>

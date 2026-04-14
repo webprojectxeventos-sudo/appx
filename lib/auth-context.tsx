@@ -131,7 +131,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (profileError || !profileData) {
         console.error('[Auth] Could not load profile:', profileError?.message)
-        return false
+        // Attempt to auto-create profile for orphaned auth users (trigger may have failed)
+        const meta = authUser.user_metadata || {}
+        // Derive organization_id from event if possible
+        let orgId: string | null = null
+        if (meta.event_id) {
+          const { data: ev } = await supabase.from('events').select('organization_id').eq('id', meta.event_id).single()
+          if (ev) orgId = ev.organization_id
+        }
+        const { data: created, error: createErr } = await supabase.from('users').upsert({
+          id: authUser.id,
+          email: authUser.email || '',
+          full_name: meta.full_name || meta.name || authUser.email?.split('@')[0] || '',
+          gender: meta.gender || null,
+          role: 'attendee',
+          event_id: meta.event_id || null,
+          organization_id: orgId,
+        }, { onConflict: 'id' }).select().single()
+
+        if (createErr || !created) {
+          console.error('[Auth] Could not recover profile:', createErr?.message)
+          return false
+        }
+        console.log('[Auth] Auto-created missing profile for', authUser.id)
+        setProfile(created)
+        loadedUserId.current = authUser.id
+
+        // Also ensure user_events row exists
+        if (meta.event_id) {
+          await supabase.from('user_events').upsert({
+            user_id: authUser.id,
+            event_id: meta.event_id,
+            role: 'attendee',
+          }, { onConflict: 'user_id,event_id' }).then(() => {})
+        }
+
+        loadSecondaryData(authUser.id, created)
+        return true
       }
 
       setProfile(profileData)

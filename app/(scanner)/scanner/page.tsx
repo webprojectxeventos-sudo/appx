@@ -34,6 +34,14 @@ type AttendeeRow = {
   user_email: string
 }
 
+type ScannerEvent = {
+  id: string
+  title: string
+  group_name: string | null
+  date: string
+  venue_id: string | null
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function playBeep(success: boolean) {
@@ -84,7 +92,7 @@ function formatTime(iso: string | null) {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ScannerPage() {
-  const { profile, events: userEvents, venue } = useAuth()
+  const { venue } = useAuth()
 
   // Tab & scanner state
   const [tab, setTab] = useState<'scan' | 'list' | 'door'>('scan')
@@ -98,10 +106,15 @@ export default function ScannerPage() {
   const [doorLoading, setDoorLoading] = useState(false)
   const [doorResult, setDoorResult] = useState<{ success: boolean; name?: string; error?: string } | null>(null)
 
-  // Attendee data
+  // Events + attendees (both come from /api/scanner/attendees, which
+  // handles admin/super_admin org-wide access in addition to user_events
+  // memberships — so the scanner page can work for admins that were
+  // never explicitly added to user_events).
+  const [serverEvents, setServerEvents] = useState<ScannerEvent[]>([])
   const [attendees, setAttendees] = useState<AttendeeRow[]>([])
   const [stats, setStats] = useState({ total: 0, scanned: 0, pending: 0 })
   const [loadingAttendees, setLoadingAttendees] = useState(false)
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null)
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -127,20 +140,20 @@ export default function ScannerPage() {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const eventIds = useMemo(
-    () => userEvents.filter(m => m.is_active).map(m => m.event_id),
-    [userEvents],
+    () => serverEvents.map(e => e.id),
+    [serverEvents],
   )
 
   const groupNames = useMemo(
-    () => userEvents.filter(m => m.is_active).map(m => m.event.group_name || m.event.title),
-    [userEvents],
+    () => serverEvents.map(e => e.group_name || e.title),
+    [serverEvents],
   )
 
   const eventNameMap = useMemo(() => {
     const map: Record<string, string> = {}
-    userEvents.forEach(m => { map[m.event_id] = m.event.group_name || m.event.title })
+    serverEvents.forEach(e => { map[e.id] = e.group_name || e.title })
     return map
-  }, [userEvents])
+  }, [serverEvents])
 
   const multipleEvents = eventIds.length > 1
 
@@ -155,33 +168,49 @@ export default function ScannerPage() {
   }, [eventIds, doorEventId])
 
   // ── Load attendees ─────────────────────────────────────────────────────────
+  //
+  // Single source of truth: the API returns both the event list (scoped to
+  // the caller via user_events + role/org) and the attendee rows for those
+  // events. Do NOT gate this on eventIds — for admins the initial list is
+  // empty and only becomes populated after this call runs.
 
   const loadAttendees = useCallback(async () => {
-    if (eventIds.length === 0) return
     setLoadingAttendees(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      if (!session) { setLoadingAttendees(false); return }
       const res = await fetch('/api/scanner/attendees', {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
-      if (!res.ok) return
-      const data: AttendeeRow[] = await res.json()
-      setAttendees(data)
-      const total = data.length
-      const scanned = data.filter(t => t.status === 'used').length
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        setBootstrapError(errBody.error || `HTTP ${res.status}`)
+        return
+      }
+      const data = await res.json() as { events: ScannerEvent[]; attendees: AttendeeRow[] }
+      setBootstrapError(null)
+      setServerEvents(data.events || [])
+      setAttendees(data.attendees || [])
+      const attArr = data.attendees || []
+      const total = attArr.length
+      const scanned = attArr.filter(t => t.status === 'used').length
       setStats({ total, scanned, pending: total - scanned })
     } catch (err) {
       console.error('Error loading attendees:', err)
+      setBootstrapError('Error de conexion')
     } finally {
       setLoadingAttendees(false)
     }
-  }, [eventIds])
+  }, [])
 
   useEffect(() => { loadAttendeesRef.current = loadAttendees }, [loadAttendees])
   useEffect(() => { loadAttendees() }, [loadAttendees])
 
-  // Realtime subscriptions
+  // Realtime subscriptions — only usable for callers whose RLS permits
+  // SELECT on tickets (scanner/group_admin via user_events, super_admin
+  // via org). Regular admins without user_events entries will be ignored
+  // by RLS here; they rely on the manual refresh button + optimistic
+  // updates after their own scans.
   useEffect(() => {
     if (eventIds.length === 0) return
     const channels = eventIds.map(eid =>
@@ -196,16 +225,33 @@ export default function ScannerPage() {
   }, [eventIds])
 
   // ── Scan logic ─────────────────────────────────────────────────────────────
+  //
+  // Uses /api/scanner/scan (not the scan_ticket RPC) so admins without
+  // user_events entries can still scan — the endpoint uses the service
+  // role and checks staff access via `canStaffEvent`.
 
   const processScan = useCallback(async (qrCode: string) => {
     try {
-      const { data, error } = await supabase.rpc('scan_ticket', { ticket_qr: qrCode })
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setScanResult({ success: false, error: 'Sesion expirada' })
+        return
+      }
+      const res = await fetch('/api/scanner/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ticket_qr: qrCode }),
+      })
 
       let result: ScanResult
-      if (error) {
-        result = { success: false, error: error.message }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        result = { success: false, error: errBody.error || `HTTP ${res.status}` }
       } else {
-        result = data as unknown as ScanResult
+        result = await res.json()
       }
 
       // Enrich duplicate scan with local data
@@ -292,15 +338,29 @@ export default function ScannerPage() {
   // ── Manual check-in ────────────────────────────────────────────────────────
 
   const manualCheckIn = async (_ticketId: string, qrCode: string) => {
-    const { data, error } = await supabase.rpc('scan_ticket', { ticket_qr: qrCode })
-    if (error) {
-      if (soundEnabled) playBeep(false)
-      haptic(false)
-    } else if (data) {
-      const result = data as unknown as ScanResult
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch('/api/scanner/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ticket_qr: qrCode }),
+      })
+      if (!res.ok) {
+        if (soundEnabled) playBeep(false)
+        haptic(false)
+        return
+      }
+      const result: ScanResult = await res.json()
       if (soundEnabled) playBeep(result.success)
       haptic(result.success)
       loadAttendees()
+    } catch {
+      if (soundEnabled) playBeep(false)
+      haptic(false)
     }
   }
 
@@ -462,6 +522,33 @@ export default function ScannerPage() {
               {eventIds.length} grupos en {venue?.name || 'el venue'}
             </p>
             <p className="text-[10px] text-white/30 truncate">{groupNames.join(' · ')}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Bootstrap error banner */}
+      {bootstrapError && (
+        <div className="card p-3 border-red-500/30 bg-red-500/5 flex items-center gap-2.5">
+          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <p className="text-[11px] text-red-300 flex-1">No se pudieron cargar los eventos: {bootstrapError}</p>
+          <button
+            onClick={loadAttendees}
+            className="text-[10px] text-red-300 font-medium px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {/* No events in window (admin landing on empty night) */}
+      {!loadingAttendees && !bootstrapError && eventIds.length === 0 && (
+        <div className="card p-4 border-amber-500/20 bg-amber-500/[0.02] flex items-start gap-3">
+          <Clock className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-white font-medium">No hay eventos ahora mismo</p>
+            <p className="text-[11px] text-white-muted mt-0.5">
+              El scanner muestra eventos en una ventana de 48h (12h atras / 36h adelante). Ajusta la fecha del evento desde el panel de eventos si necesitas escanear fuera de esta franja.
+            </p>
           </div>
         </div>
       )}

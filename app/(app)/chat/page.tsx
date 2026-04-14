@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { filterProfanity } from '@/lib/profanity-filter'
 import { notifyAnnouncement, requestNotificationPermission } from '@/lib/notifications'
 import type { Database } from '@/lib/types'
-import { MessageCircle, Send, Megaphone, ChevronDown, Bell, X, Users, User } from 'lucide-react'
+import { MessageCircle, Send, Megaphone, ChevronDown, Bell, X, Users, User, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const REACTION_EMOJIS = ['🔥', '❤️', '🎉', '👏', '😂']
@@ -60,6 +60,7 @@ export default function ChatPage() {
   const [cooldownLeft, setCooldownLeft] = useState(0)
   const [announcementToast, setAnnouncementToast] = useState<string | null>(null)
   const [notifPermission, setNotifPermission] = useState<'default' | 'granted' | 'denied'>('default')
+  const [isBanned, setIsBanned] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -104,6 +105,32 @@ export default function ChatPage() {
     }
   }, [])
 
+  // Check if user is banned from chat
+  useEffect(() => {
+    if (!user?.id || !event?.id) return
+    const checkBan = async () => {
+      const { data: ban } = await supabase
+        .from('chat_bans')
+        .select('id, expires_at, is_active')
+        .eq('user_id', user.id)
+        .eq('event_id', event.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (ban) {
+        // Check if expired
+        if (ban.expires_at && new Date(ban.expires_at) <= new Date()) {
+          await supabase.from('chat_bans').update({ is_active: false }).eq('id', ban.id)
+          setIsBanned(false)
+        } else {
+          setIsBanned(true)
+        }
+      } else {
+        setIsBanned(false)
+      }
+    }
+    checkBan()
+  }, [user?.id, event?.id])
+
   const scrollToBottom = (smooth = true) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
   }
@@ -147,6 +174,7 @@ export default function ChatPage() {
       let query = supabase
         .from('messages')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: true })
 
       if (activeTab === 'private') {
@@ -380,7 +408,7 @@ export default function ChatPage() {
 
   const handleSendMessage = async () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || !user?.id || cooldownLeft > 0) return
+    if (!trimmed || !user?.id || cooldownLeft > 0 || isBanned) return
     if (activeTab === 'private' && !event?.id) return
     if (activeTab === 'general' && !venue?.id) return
 
@@ -417,6 +445,8 @@ export default function ChatPage() {
       is_announcement: false,
       is_general: activeTab === 'general',
       is_pinned: false,
+      deleted_at: null,
+      deleted_by: null,
       created_at: new Date().toISOString(),
       sender_name: profile?.full_name || null,
       reactions: [],
@@ -531,9 +561,10 @@ export default function ChatPage() {
     return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
   }
 
-  // Separate announcements and chat messages
-  const announcements = messages.filter((m) => m.is_announcement)
-  const chatMessages = messages.filter((m) => !m.is_announcement)
+  // Separate announcements and chat messages, filter out soft-deleted
+  const visibleMessages = messages.filter(m => !m.deleted_at)
+  const announcements = visibleMessages.filter((m) => m.is_announcement)
+  const chatMessages = visibleMessages.filter((m) => !m.is_announcement)
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative" style={{ backgroundColor: '#0a0a0a' }}>
@@ -911,52 +942,59 @@ export default function ChatPage() {
             </span>
           </div>
         )}
-        <div className="flex items-end gap-2">
-          <div
-            className="flex-1 rounded-2xl overflow-hidden transition-all"
-            style={{
-              backgroundColor: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            <input
-              type="text"
-              placeholder={cooldownLeft > 0 ? `Espera ${cooldownLeft}s...` : 'Mensaje...'}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value.slice(0, MAX_MSG_LENGTH + 50))}
-              onKeyDown={handleKeyDown}
-              disabled={cooldownLeft > 0}
-              maxLength={MAX_MSG_LENGTH + 50}
-              className="w-full px-4 py-2.5 text-[14px] text-white placeholder:text-gray-600 bg-transparent focus:outline-none"
-              style={{ caretColor: '#E41E2B' }}
-            />
+        {isBanned ? (
+          <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
+            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+            <span className="text-[13px] text-red-300/80">Chat restringido por un moderador</span>
           </div>
-          <button
-            onClick={handleSendMessage}
-            disabled={!inputValue.trim() || cooldownLeft > 0 || inputValue.length > MAX_MSG_LENGTH}
-            className={cn(
-              'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
-              cooldownLeft > 0
-                ? 'opacity-50'
-                : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
-                  ? 'opacity-100 active:scale-90'
-                  : 'opacity-30'
-            )}
-            style={{
-              background: cooldownLeft > 0
-                ? 'rgba(255,255,255,0.1)'
-                : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
-                  ? 'linear-gradient(135deg, #E41E2B 0%, #C41824 100%)'
-                  : 'rgba(228,30,43,0.3)',
-            }}
-          >
-            {cooldownLeft > 0 ? (
-              <span className="text-[11px] font-bold text-white-muted">{cooldownLeft}</span>
-            ) : (
-              <Send className="h-4 w-4 text-white" strokeWidth={2.5} style={{ marginLeft: '1px' }} />
-            )}
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-end gap-2">
+            <div
+              className="flex-1 rounded-2xl overflow-hidden transition-all"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <input
+                type="text"
+                placeholder={cooldownLeft > 0 ? `Espera ${cooldownLeft}s...` : 'Mensaje...'}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value.slice(0, MAX_MSG_LENGTH + 50))}
+                onKeyDown={handleKeyDown}
+                disabled={cooldownLeft > 0}
+                maxLength={MAX_MSG_LENGTH + 50}
+                className="w-full px-4 py-2.5 text-[14px] text-white placeholder:text-gray-600 bg-transparent focus:outline-none"
+                style={{ caretColor: '#E41E2B' }}
+              />
+            </div>
+            <button
+              onClick={handleSendMessage}
+              disabled={!inputValue.trim() || cooldownLeft > 0 || inputValue.length > MAX_MSG_LENGTH}
+              className={cn(
+                'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
+                cooldownLeft > 0
+                  ? 'opacity-50'
+                  : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
+                    ? 'opacity-100 active:scale-90'
+                    : 'opacity-30'
+              )}
+              style={{
+                background: cooldownLeft > 0
+                  ? 'rgba(255,255,255,0.1)'
+                  : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
+                    ? 'linear-gradient(135deg, #E41E2B 0%, #C41824 100%)'
+                    : 'rgba(228,30,43,0.3)',
+              }}
+            >
+              {cooldownLeft > 0 ? (
+                <span className="text-[11px] font-bold text-white-muted">{cooldownLeft}</span>
+              ) : (
+                <Send className="h-4 w-4 text-white" strokeWidth={2.5} style={{ marginLeft: '1px' }} />
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

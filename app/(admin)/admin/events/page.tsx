@@ -5,6 +5,9 @@ import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
 import { Plus, ChevronDown } from 'lucide-react'
+import { cn, toLocalDateKey } from '@/lib/utils'
+import { authFetch } from '@/lib/auth-fetch'
+import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
 import { DateStrip } from '@/components/admin/events/date-strip'
 import { VenueCard } from '@/components/admin/events/venue-card'
@@ -15,14 +18,10 @@ import type { Database } from '@/lib/types'
 type Event = Database['public']['Tables']['events']['Row']
 type Venue = Database['public']['Tables']['venues']['Row']
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toISOString().split('T')[0]
-}
-
 export default function EventsPage() {
   const { user, organization, isSuperAdmin, isAdmin, initialized } = useAuth()
   const adminCtx = useAdminSelection()
+  const { error: showError, success } = useToast()
 
   const [allEvents, setAllEvents] = useState<Event[]>([])
   const [allVenues, setAllVenues] = useState<Venue[]>([])
@@ -70,6 +69,18 @@ export default function EventsPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Keep the drawer's event prop in sync with fresh data after refetches.
+  // Without this, editing date/time inside the drawer saves to DB but the
+  // displayed event still points to the stale object, so the UI shows the
+  // old values and the user thinks nothing was saved.
+  useEffect(() => {
+    if (!drawerEvent) return
+    const fresh = allEvents.find(e => e.id === drawerEvent.id)
+    if (fresh && fresh !== drawerEvent) {
+      setDrawerEvent(fresh)
+    }
+  }, [allEvents, drawerEvent])
+
   const handleRefresh = useCallback(async () => {
     await fetchData()
     adminCtx.refresh()
@@ -77,7 +88,7 @@ export default function EventsPage() {
 
   // Derived: unique dates sorted chronologically
   const dates = useMemo(() => {
-    const set = new Set(allEvents.map(e => formatDate(e.date)))
+    const set = new Set(allEvents.map(e => toLocalDateKey(e.date)))
     return [...set].sort()
   }, [allEvents])
 
@@ -85,7 +96,7 @@ export default function EventsPage() {
   const eventCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const e of allEvents) {
-      const d = formatDate(e.date)
+      const d = toLocalDateKey(e.date)
       counts[d] = (counts[d] || 0) + 1
     }
     return counts
@@ -95,7 +106,7 @@ export default function EventsPage() {
   useEffect(() => {
     if (selectedDate && dates.includes(selectedDate)) return
     if (dates.length === 0) { setSelectedDate(null); return }
-    const today = new Date().toISOString().split('T')[0]
+    const today = toLocalDateKey(new Date())
     const futureDate = dates.find(d => d >= today)
     setSelectedDate(futureDate || dates[dates.length - 1])
   }, [dates, selectedDate])
@@ -107,7 +118,7 @@ export default function EventsPage() {
 
   // Events for selected date
   const eventsForDate = useMemo(() =>
-    allEvents.filter(e => selectedDate && formatDate(e.date) === selectedDate),
+    allEvents.filter(e => selectedDate && toLocalDateKey(e.date) === selectedDate),
     [allEvents, selectedDate]
   )
 
@@ -153,13 +164,13 @@ export default function EventsPage() {
   }, [allVenues, displayVenues])
 
   // Handle new session creation — actually insert placeholder events for each venue
-  const handleSessionCreated = async (date: string, venueIds: string[], time: string) => {
+  const handleSessionCreated = async (date: string, venueIds: string[], time: string, eventType: 'fiesta' | 'eso' = 'fiesta') => {
     setSelectedDate(date)
     if (venueIds.length > 0 && user?.id && organization?.id) {
       // Check which venues already have events on this date
       const existingVenueIds = new Set(
         allEvents
-          .filter(e => formatDate(e.date) === date)
+          .filter(e => toLocalDateKey(e.date) === date)
           .map(e => e.venue_id)
           .filter(Boolean)
       )
@@ -182,7 +193,7 @@ export default function EventsPage() {
             group_name: v?.name || 'Nuevo evento',
             date: dateTime,
             venue_id: venueId,
-            event_type: 'fiesta' as const,
+            event_type: eventType,
             event_code: genCode(),
             organization_id: organization.id,
             created_by: user.id,
@@ -201,6 +212,44 @@ export default function EventsPage() {
   const handleAddVenue = (venueId: string) => {
     setManualVenues(prev => new Set([...prev, venueId]))
     setShowAddVenue(false)
+  }
+
+  // Delete all events for a date
+  const handleDeleteDate = async (date: string) => {
+    const eventsOnDate = allEvents.filter(e => toLocalDateKey(e.date) === date)
+    if (eventsOnDate.length === 0) return
+    if (!confirm(`Eliminar ${eventsOnDate.length} grupo(s) del ${new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}? Se borrarán todos sus datos.`)) return
+    let failed = 0
+    for (const ev of eventsOnDate) {
+      try {
+        const res = await authFetch('/api/admin/delete-event', { eventId: ev.id })
+        if (!res.ok) failed++
+      } catch { failed++ }
+    }
+    if (failed > 0) showError(`${failed} grupo(s) no se pudieron eliminar`)
+    else success('Fecha eliminada')
+    await fetchData()
+  }
+
+  // Delete all events for a venue on the current date
+  const handleDeleteVenue = async (venueId: string, venueName: string) => {
+    const eventsForVenue = eventsForDate.filter(e => e.venue_id === venueId)
+    if (eventsForVenue.length === 0) {
+      // Just remove from manual venues
+      setManualVenues(prev => { const n = new Set(prev); n.delete(venueId); return n })
+      return
+    }
+    if (!confirm(`Eliminar ${eventsForVenue.length} grupo(s) de "${venueName}" en esta fecha? Se borrarán todos sus datos.`)) return
+    let failed = 0
+    for (const ev of eventsForVenue) {
+      try {
+        const res = await authFetch('/api/admin/delete-event', { eventId: ev.id })
+        if (!res.ok) failed++
+      } catch { failed++ }
+    }
+    if (failed > 0) showError(`${failed} grupo(s) no se pudieron eliminar`)
+    else success(`Venue "${venueName}" limpiado`)
+    await fetchData()
   }
 
   if (!initialized) {
@@ -237,6 +286,7 @@ export default function EventsPage() {
           selectedDate={selectedDate}
           onSelect={setSelectedDate}
           onAddDate={() => setShowNewSession(true)}
+          onDeleteDate={handleDeleteDate}
           eventCounts={eventCounts}
         />
       )}
@@ -252,7 +302,7 @@ export default function EventsPage() {
 
       {/* Board: Venue columns */}
       {selectedDate && (
-        <div className="flex flex-col md:flex-row gap-4 md:overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex flex-col md:flex-row gap-4 md:items-start md:overflow-x-auto pb-4 scrollbar-none">
           {displayVenues.map(venue => (
             <VenueCard
               key={venue.id}
@@ -264,30 +314,33 @@ export default function EventsPage() {
               userId={user?.id || ''}
               onRefresh={handleRefresh}
               onSelectGroup={setDrawerEvent}
+              onDeleteVenue={handleDeleteVenue}
             />
           ))}
 
-          {/* Add venue button */}
+          {/* Add venue card */}
           {availableVenues.length > 0 && (
-            <div className="relative shrink-0">
+            <div className="relative shrink-0 md:min-w-[280px]">
               <button
                 onClick={() => setShowAddVenue(!showAddVenue)}
-                className="flex flex-col items-center justify-center min-w-[200px] h-32 rounded-2xl border border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary transition-all"
+                className="flex flex-col items-center justify-center w-full min-h-[160px] rounded-2xl border-2 border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary hover:bg-primary/[0.02] active:bg-primary/5 transition-all"
               >
-                <Plus className="w-5 h-5 mb-1.5" />
+                <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-3">
+                  <Plus className="w-6 h-6" />
+                </div>
                 <span className="text-sm font-medium">Añadir venue</span>
-                <ChevronDown className="w-3.5 h-3.5 mt-0.5" />
+                <ChevronDown className={cn('w-4 h-4 mt-1 transition-transform', showAddVenue && 'rotate-180')} />
               </button>
               {showAddVenue && (
-                <div className="absolute left-0 top-full mt-1 z-50 min-w-[220px] py-1 rounded-xl border border-black-border bg-black-card shadow-xl">
+                <div className="absolute left-0 right-0 md:right-auto top-full mt-2 z-50 md:min-w-[260px] py-2 rounded-xl border border-black-border bg-black-card shadow-2xl">
                   {availableVenues.map(v => (
                     <button
                       key={v.id}
                       onClick={() => handleAddVenue(v.id)}
-                      className="w-full text-left px-3 py-2.5 text-sm text-white hover:bg-white/5 transition-colors"
+                      className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 active:bg-white/10 transition-colors"
                     >
-                      <span className="block">{v.name}</span>
-                      {v.city && <span className="text-[11px] text-white-muted">{v.city}</span>}
+                      <span className="block font-medium">{v.name}</span>
+                      {v.city && <span className="text-xs text-white-muted">{v.city}</span>}
                     </button>
                   ))}
                 </div>

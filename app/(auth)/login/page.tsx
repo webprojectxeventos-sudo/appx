@@ -103,8 +103,18 @@ function LoginContent() {
         }
       }
 
+      // Check role to decide where to redirect
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single()
+
+      const role = profileData?.role || 'attendee'
+      const isAdminRole = role === 'super_admin' || role === 'admin'
+
       // Don't setLoading(false) — keep "Entrando..." visible until navigation completes
-      router.replace('/home')
+      router.replace(isAdminRole ? '/admin/dashboard' : '/home')
     } catch {
       setError('Error inesperado')
       setLoading(false)

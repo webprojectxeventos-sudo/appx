@@ -172,6 +172,8 @@ export default function DrinksPage() {
       }
       // Mark drink order as done in sessionStorage so layout stops redirecting
       try { sessionStorage.setItem(`drink_order_${event.id}_${user.id}`, 'done') } catch {}
+      // Notify the layout immediately so it releases the /polls redirect guard
+      try { window.dispatchEvent(new CustomEvent('drink-order-done')) } catch {}
 
       setSubmitted(true)
 

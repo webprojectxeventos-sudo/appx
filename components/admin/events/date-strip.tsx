@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useEffect } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface DateStripProps {
@@ -9,6 +9,7 @@ interface DateStripProps {
   selectedDate: string | null
   onSelect: (date: string) => void
   onAddDate: () => void
+  onDeleteDate?: (date: string) => void
   eventCounts: Record<string, number>
 }
 
@@ -17,7 +18,7 @@ function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-export function DateStrip({ dates, selectedDate, onSelect, onAddDate, eventCounts }: DateStripProps) {
+export function DateStrip({ dates, selectedDate, onSelect, onAddDate, onDeleteDate, eventCounts }: DateStripProps) {
   const activeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -30,27 +31,37 @@ export function DateStrip({ dates, selectedDate, onSelect, onAddDate, eventCount
         const isActive = date === selectedDate
         const count = eventCounts[date] || 0
         return (
-          <button
-            key={date}
-            ref={isActive ? activeRef : null}
-            onClick={() => onSelect(date)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all shrink-0',
-              isActive
-                ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                : 'border border-black-border text-white-muted hover:border-white/20 hover:text-white'
+          <div key={date} className="relative group/date shrink-0">
+            <button
+              ref={isActive ? activeRef : null}
+              onClick={() => onSelect(date)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all',
+                isActive
+                  ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                  : 'border border-black-border text-white-muted hover:border-white/20 hover:text-white'
+              )}
+            >
+              <span className="capitalize">{formatDateLabel(date)}</span>
+              {count > 0 && (
+                <span className={cn(
+                  'text-[11px] font-bold px-1.5 py-0.5 rounded-full',
+                  isActive ? 'bg-white/20' : 'bg-white/5'
+                )}>
+                  {count}
+                </span>
+              )}
+            </button>
+            {onDeleteDate && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDeleteDate(date) }}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500/90 text-white flex items-center justify-center opacity-0 group-hover/date:opacity-100 transition-opacity hover:bg-red-500 shadow-lg"
+                title="Eliminar fecha"
+              >
+                <X className="w-3 h-3" />
+              </button>
             )}
-          >
-            <span className="capitalize">{formatDateLabel(date)}</span>
-            {count > 0 && (
-              <span className={cn(
-                'text-[11px] font-bold px-1.5 py-0.5 rounded-full',
-                isActive ? 'bg-white/20' : 'bg-white/5'
-              )}>
-                {count}
-              </span>
-            )}
-          </button>
+          </div>
         )
       })}
       <button
