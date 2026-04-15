@@ -376,6 +376,11 @@ body {
   to   { transform: translateX(0); }
 }
 
+@keyframes drawer-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 @keyframes bounce-subtle {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-4px); }
@@ -407,6 +412,7 @@ body {
 .animate-blur-in { animation: blur-in 0.5s ease both; }
 .animate-slide-right { animation: slide-from-right 0.4s ease both; }
 .animate-drawer-in { animation: drawer-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-drawer-up { animation: drawer-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .animate-bounce-subtle { animation: bounce-subtle 2s ease-in-out infinite; }
 .animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
 .animate-glow-pulse-gold { animation: glow-pulse-gold 3s ease-in-out infinite; }

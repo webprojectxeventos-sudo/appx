@@ -12,6 +12,7 @@ import {
   GlassWater, UserPlus, ArrowRight, Zap,
 } from 'lucide-react'
 import { cn, toLocalDateKey } from '@/lib/utils'
+import { DrinksBreakdown } from '@/components/admin/dashboard/drinks-breakdown'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
@@ -375,6 +376,17 @@ export default function DashboardPage() {
             <StatCard icon={GlassWater} label="Bebidas" value={totalDrinks} color="text-amber-400" bg="bg-amber-500/10" />
             <StatCard icon={AlertTriangle} label="Incidencias" value={openIncidents} color={openIncidents > 0 ? 'text-red-400' : 'text-white-muted'} bg={openIncidents > 0 ? 'bg-red-500/10' : 'bg-white/5'} />
           </div>
+
+          {/* Drinks breakdown — per venue, for the selected date.
+              Gives the user immediate "how much to buy" visibility without
+              having to click into each group's polls tab. */}
+          {totalDrinks > 0 && (
+            <DrinksBreakdown
+              eventsForDate={activeEvents}
+              venuesForDate={venuesForDate}
+              selectedVenueId={selectedVenueId}
+            />
+          )}
 
           {/* Two-column layout: Groups + Recent Registrations */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-4">

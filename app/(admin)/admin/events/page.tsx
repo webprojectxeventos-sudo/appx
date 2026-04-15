@@ -1,17 +1,18 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
-import { Plus, ChevronDown } from 'lucide-react'
-import { cn, toLocalDateKey } from '@/lib/utils'
+import { Plus } from 'lucide-react'
+import { toLocalDateKey } from '@/lib/utils'
 import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
 import { DateStrip } from '@/components/admin/events/date-strip'
 import { VenueCard } from '@/components/admin/events/venue-card'
 import { NewSessionModal } from '@/components/admin/events/new-session-modal'
+import { VenuePickerModal } from '@/components/admin/events/venue-picker-modal'
 import { GroupDetailDrawer } from '@/components/admin/events/group-detail-drawer'
 import type { Database } from '@/lib/types'
 
@@ -214,6 +215,12 @@ export default function EventsPage() {
     setShowAddVenue(false)
   }
 
+  // When a brand-new venue is created from the picker modal, merge it into
+  // allVenues so it shows up instantly without waiting for a refetch.
+  const handleVenueCreated = (v: Venue) => {
+    setAllVenues(prev => [...prev, v].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
   // Delete all events for a date
   const handleDeleteDate = async (date: string) => {
     const eventsOnDate = allEvents.filter(e => toLocalDateKey(e.date) === date)
@@ -318,35 +325,21 @@ export default function EventsPage() {
             />
           ))}
 
-          {/* Add venue card */}
-          {availableVenues.length > 0 && (
-            <div className="relative shrink-0 md:min-w-[280px]">
-              <button
-                onClick={() => setShowAddVenue(!showAddVenue)}
-                className="flex flex-col items-center justify-center w-full min-h-[160px] rounded-2xl border-2 border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary hover:bg-primary/[0.02] active:bg-primary/5 transition-all"
-              >
-                <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-3">
-                  <Plus className="w-6 h-6" />
-                </div>
-                <span className="text-sm font-medium">Añadir venue</span>
-                <ChevronDown className={cn('w-4 h-4 mt-1 transition-transform', showAddVenue && 'rotate-180')} />
-              </button>
-              {showAddVenue && (
-                <div className="absolute left-0 right-0 md:right-auto top-full mt-2 z-50 md:min-w-[260px] py-2 rounded-xl border border-black-border bg-black-card shadow-2xl">
-                  {availableVenues.map(v => (
-                    <button
-                      key={v.id}
-                      onClick={() => handleAddVenue(v.id)}
-                      className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 active:bg-white/10 transition-colors"
-                    >
-                      <span className="block font-medium">{v.name}</span>
-                      {v.city && <span className="text-xs text-white-muted">{v.city}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Add venue card — opens modal (works on mobile + doesn't clip in overflow containers) */}
+          <div className="shrink-0 md:min-w-[280px]">
+            <button
+              onClick={() => setShowAddVenue(true)}
+              className="flex flex-col items-center justify-center w-full min-h-[160px] rounded-2xl border-2 border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary hover:bg-primary/[0.02] active:bg-primary/5 transition-all"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-3">
+                <Plus className="w-6 h-6" />
+              </div>
+              <span className="text-sm font-medium">Añadir venue</span>
+              <span className="text-[11px] text-white-muted/60 mt-0.5">
+                {availableVenues.length > 0 ? `${availableVenues.length} disponibles` : 'Crea uno nuevo'}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -394,6 +387,18 @@ export default function EventsPage() {
         allVenues={allVenues}
         existingDates={dates}
         onCreated={handleSessionCreated}
+        organizationId={organization?.id || ''}
+        onVenueCreated={handleVenueCreated}
+      />
+
+      {/* Venue picker modal — pick existing or create new inline */}
+      <VenuePickerModal
+        open={showAddVenue}
+        onClose={() => setShowAddVenue(false)}
+        availableVenues={availableVenues}
+        organizationId={organization?.id || ''}
+        onPick={handleAddVenue}
+        onVenueCreated={handleVenueCreated}
       />
 
       {/* Group detail drawer */}

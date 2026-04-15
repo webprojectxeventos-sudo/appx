@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { X, CalendarPlus, Check, Clock, PartyPopper, GraduationCap } from 'lucide-react'
+import { X, CalendarPlus, Check, Clock, PartyPopper, GraduationCap, Plus, Building2, Loader2 } from 'lucide-react'
 import { cn, toLocalDateKey } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
+import { useToast } from '@/components/ui/toast'
 import type { Database } from '@/lib/types'
 
 type Venue = Database['public']['Tables']['venues']['Row']
@@ -13,9 +15,22 @@ interface NewSessionModalProps {
   allVenues: Venue[]
   existingDates: string[]
   onCreated: (date: string, venueIds: string[], time: string, eventType: 'fiesta' | 'eso') => void
+  /** Organization id — required to create new venues inline. */
+  organizationId?: string
+  /** Called after a new venue is inserted so the parent can merge it into allVenues. */
+  onVenueCreated?: (venue: Venue) => void
 }
 
-export function NewSessionModal({ open, onClose, allVenues, existingDates, onCreated }: NewSessionModalProps) {
+export function NewSessionModal({
+  open,
+  onClose,
+  allVenues,
+  existingDates,
+  onCreated,
+  organizationId,
+  onVenueCreated,
+}: NewSessionModalProps) {
+  const { error: showError, success } = useToast()
   // Default date: next Saturday (local timezone)
   const getNextSaturday = () => {
     const d = new Date()
@@ -28,6 +43,11 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
   const [eventType, setEventType] = useState<'fiesta' | 'eso'>('fiesta')
   const [selectedVenueIds, setSelectedVenueIds] = useState<Set<string>>(new Set())
 
+  // Inline create-venue flow
+  const [creatingVenue, setCreatingVenue] = useState(false)
+  const [savingVenue, setSavingVenue] = useState(false)
+  const [venueForm, setVenueForm] = useState({ name: '', city: '', capacity: '' })
+
   const dateExists = existingDates.includes(date)
 
   const toggleVenue = (id: string) => {
@@ -39,10 +59,38 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
     })
   }
 
+  const handleCreateVenue = async () => {
+    if (!venueForm.name.trim() || !organizationId) return
+    setSavingVenue(true)
+    const { data, error } = await supabase
+      .from('venues')
+      .insert({
+        name: venueForm.name.trim(),
+        city: venueForm.city.trim() || null,
+        capacity: venueForm.capacity ? parseInt(venueForm.capacity) : null,
+        organization_id: organizationId,
+      })
+      .select()
+      .single()
+    setSavingVenue(false)
+    if (error || !data) {
+      showError(error?.message || 'No se pudo crear el venue')
+      return
+    }
+    success(`Venue "${data.name}" creado`)
+    onVenueCreated?.(data as Venue)
+    // Auto-select the newly created venue so the user can submit immediately
+    setSelectedVenueIds(prev => new Set([...prev, data.id]))
+    setVenueForm({ name: '', city: '', capacity: '' })
+    setCreatingVenue(false)
+  }
+
   const handleSubmit = () => {
     if (!date) return
     onCreated(date, Array.from(selectedVenueIds), time, eventType)
     setSelectedVenueIds(new Set())
+    setCreatingVenue(false)
+    setVenueForm({ name: '', city: '', capacity: '' })
     onClose()
   }
 
@@ -126,11 +174,88 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
 
           {/* Venue selection */}
           <div>
-            <label className="block text-sm font-medium text-white-muted mb-1.5">
-              Venues ({selectedVenueIds.size} seleccionados)
-            </label>
-            {allVenues.length === 0 ? (
-              <p className="text-xs text-white-muted py-3 text-center">No hay venues. Créalos en Organización → Venues.</p>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-white-muted">
+                Venues ({selectedVenueIds.size} seleccionados)
+              </label>
+              {!creatingVenue && organizationId && (
+                <button
+                  onClick={() => setCreatingVenue(true)}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Crear nuevo
+                </button>
+              )}
+            </div>
+
+            {/* Inline create-venue form */}
+            {creatingVenue && (
+              <div className="mb-3 p-3 rounded-xl border border-primary/30 bg-primary/[0.04] space-y-2 animate-fade-in">
+                <div className="flex items-center gap-2 mb-1">
+                  <Building2 className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">Nuevo venue</span>
+                </div>
+                <input
+                  type="text"
+                  value={venueForm.name}
+                  onChange={e => setVenueForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Nombre del venue *"
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={venueForm.city}
+                    onChange={e => setVenueForm(f => ({ ...f, city: e.target.value }))}
+                    placeholder="Ciudad"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40"
+                  />
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={venueForm.capacity}
+                    onChange={e => setVenueForm(f => ({ ...f, capacity: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="Aforo"
+                    className="w-[90px] px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => { setCreatingVenue(false); setVenueForm({ name: '', city: '', capacity: '' }) }}
+                    disabled={savingVenue}
+                    className="btn-ghost flex-1 text-xs py-2"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCreateVenue}
+                    disabled={!venueForm.name.trim() || savingVenue}
+                    className="btn-primary flex-[1.5] text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-40"
+                  >
+                    {savingVenue ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                    {savingVenue ? 'Creando...' : 'Crear y seleccionar'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {allVenues.length === 0 && !creatingVenue ? (
+              <div className="rounded-xl border border-dashed border-primary/30 bg-primary/[0.03] p-5 text-center">
+                <Building2 className="w-6 h-6 text-primary/60 mx-auto mb-2" />
+                <p className="text-sm text-white font-medium mb-0.5">No hay venues todavia</p>
+                <p className="text-[11px] text-white-muted mb-3">Crea tu primer venue para empezar</p>
+                {organizationId && (
+                  <button
+                    onClick={() => setCreatingVenue(true)}
+                    className="btn-primary text-xs px-4 py-2 inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Crear venue
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="space-y-1 max-h-[240px] overflow-y-auto">
                 {allVenues.map(v => {
@@ -152,12 +277,12 @@ export function NewSessionModal({ open, onClose, allVenues, existingDates, onCre
                       )}>
                         {isSelected && <Check className="w-3 h-3 text-primary" />}
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className="text-sm text-white block truncate">{v.name}</span>
                         {v.city && <span className="text-[11px] text-white-muted">{v.city}</span>}
                       </div>
                       {v.capacity && (
-                        <span className="text-[10px] text-white-muted ml-auto shrink-0">cap. {v.capacity}</span>
+                        <span className="text-[10px] text-white-muted shrink-0">cap. {v.capacity}</span>
                       )}
                     </button>
                   )
