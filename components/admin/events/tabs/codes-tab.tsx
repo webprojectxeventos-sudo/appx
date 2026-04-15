@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Pagination } from '@/components/admin/pagination'
-import { Copy, Download, Plus, Users, Ticket, Ban, CheckCircle2, Search, Trash2, CheckSquare, Square, MinusSquare } from 'lucide-react'
+import { Copy, Download, FileText, Plus, Users, Ticket, Ban, CheckCircle2, Search, Trash2, CheckSquare, Square, MinusSquare, Loader2 } from 'lucide-react'
 import { useToast } from '@/components/ui/toast'
 import type { Database } from '@/lib/types'
 
@@ -12,9 +12,11 @@ type AccessCode = Database['public']['Tables']['access_codes']['Row']
 
 interface CodesTabProps {
   eventId: string
+  eventName: string
+  eventDate: string
 }
 
-export function CodesTab({ eventId }: CodesTabProps) {
+export function CodesTab({ eventId, eventName, eventDate }: CodesTabProps) {
   const { error: showError, success } = useToast()
   const [codes, setCodes] = useState<AccessCode[]>([])
   const [attendeeNames, setAttendeeNames] = useState<Record<string, string>>({})
@@ -25,6 +27,7 @@ export function CodesTab({ eventId }: CodesTabProps) {
   const [filter, setFilter] = useState<'all' | 'available' | 'used' | 'inactive'>('all')
   const [copied, setCopied] = useState(false)
   const [codePage, setCodePage] = useState(1)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -180,6 +183,34 @@ export function CodesTab({ eventId }: CodesTabProps) {
     URL.revokeObjectURL(url)
   }
 
+  // PDF export: printable control sheet with the AVAILABLE (unused + active)
+  // codes only — matches the "Copiar" button's semantics. A sheet full of
+  // already-redeemed codes would be useless for handing out in person.
+  // jspdf is lazy-imported so it only hits the bundle when the user actually
+  // clicks "PDF" — it's ~350KB gzipped.
+  const handleExportPDF = async () => {
+    const available = codes.filter(c => !c.used_by && c.is_active)
+    if (available.length === 0) {
+      showError('No hay codigos disponibles para exportar')
+      return
+    }
+    setExportingPdf(true)
+    try {
+      const { generateCodesPdf } = await import('@/lib/generate-codes-pdf')
+      await generateCodesPdf(
+        eventName,
+        eventDate,
+        available.map(c => c.code),
+        '/logo.png',
+      )
+    } catch (err) {
+      console.error('Error generating PDF:', err)
+      showError('Error al generar el PDF')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   // Toggle single code selection
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -305,6 +336,15 @@ export function CodesTab({ eventId }: CodesTabProps) {
             </button>
             <button onClick={handleExportCSV} className="btn-ghost text-xs text-primary">
               <Download className="w-3 h-3" /> CSV
+            </button>
+            <button
+              onClick={handleExportPDF}
+              disabled={exportingPdf}
+              className="btn-ghost text-xs text-primary disabled:opacity-50"
+              title="Descargar hoja de control (A4) con codigos disponibles"
+            >
+              {exportingPdf ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+              {exportingPdf ? 'Generando...' : 'PDF'}
             </button>
             <button
               onClick={() => { setSelectMode(!selectMode); if (selectMode) setSelected(new Set()) }}

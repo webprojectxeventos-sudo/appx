@@ -301,7 +301,7 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto p-4">
           {activeTab === 'attendees' && <AttendeesTab eventId={event.id} />}
-          {activeTab === 'codes' && <CodesTab eventId={event.id} />}
+          {activeTab === 'codes' && <CodesTab eventId={event.id} eventName={event.group_name || event.title} eventDate={event.date} />}
           {activeTab === 'polls' && <PollsTab eventId={event.id} eventType={event.event_type} eventTitle={event.title} venueId={event.venue_id || undefined} date={date} />}
           {activeTab === 'surveys' && <SurveysTab eventId={event.id} />}
           {activeTab === 'playlist' && <PlaylistTab eventId={event.id} />}
