@@ -156,6 +156,39 @@ export default function ScannerPage() {
     return map
   }, [serverEvents])
 
+  // Group events by calendar day so admins with many concurrent/consecutive
+  // events can find the right one without scrolling a 30-item horizontal pill
+  // strip. Labels: "Ayer" / "Hoy" / "Mañana" / "sáb 18 abr" (local time).
+  const eventsByDay = useMemo(() => {
+    if (serverEvents.length === 0) return []
+    const groups = new Map<string, ScannerEvent[]>()
+    for (const ev of serverEvents) {
+      const key = new Date(ev.date).toDateString()
+      const arr = groups.get(key) || []
+      arr.push(ev)
+      groups.set(key, arr)
+    }
+    for (const arr of groups.values()) {
+      arr.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    }
+    const now = new Date()
+    const todayKey = now.toDateString()
+    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowKey = tomorrow.toDateString()
+    const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayKey = yesterday.toDateString()
+    return [...groups.entries()]
+      .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+      .map(([key, events]) => {
+        let label: string
+        if (key === todayKey) label = 'Hoy'
+        else if (key === tomorrowKey) label = 'Mañana'
+        else if (key === yesterdayKey) label = 'Ayer'
+        else label = new Date(key).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+        return { key, label, events }
+      })
+  }, [serverEvents])
+
   const multipleEvents = eventIds.length > 1
 
   // Keep refs in sync
@@ -802,24 +835,39 @@ export default function ScannerPage() {
               onKeyDown={e => { if (e.key === 'Enter' && doorName.trim()) registerDoor() }}
             />
 
-            {/* Event selector (if multiple events) */}
+            {/* Event selector — grouped by calendar day so admins with 20+
+                concurrent events can pick quickly instead of scanning a long
+                horizontal strip. */}
             {multipleEvents && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <label className="text-[11px] text-white-muted font-medium">Grupo</label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {eventIds.map(id => (
-                    <button
-                      key={id}
-                      onClick={() => setDoorEventId(id)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all',
-                        doorEventId === id
-                          ? 'bg-primary/15 text-primary border border-primary/20'
-                          : 'bg-white/5 text-white-muted border border-transparent',
-                      )}
-                    >
-                      {eventNameMap[id]}
-                    </button>
+                <div className="space-y-2.5">
+                  {eventsByDay.map(({ key, label, events }) => (
+                    <div key={key} className="space-y-1.5">
+                      <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">{label}</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {events.map(ev => {
+                          const name = ev.group_name || ev.title
+                          const time = new Date(ev.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+                          const selected = doorEventId === ev.id
+                          return (
+                            <button
+                              key={ev.id}
+                              onClick={() => setDoorEventId(ev.id)}
+                              className={cn(
+                                'px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5',
+                                selected
+                                  ? 'bg-primary/15 text-primary border border-primary/20'
+                                  : 'bg-white/5 text-white-muted border border-transparent',
+                              )}
+                            >
+                              <span className="truncate max-w-[160px]">{name}</span>
+                              <span className={cn('text-[10px] tabular-nums', selected ? 'text-primary/70' : 'text-white/30')}>{time}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -949,34 +997,51 @@ export default function ScannerPage() {
             ))}
           </div>
 
-          {/* Group filter pills */}
+          {/* Group filter — grouped by day with a dedicated "todos" reset row
+              on top so large events (25+ groups across multiple nights) stay
+              scannable. */}
           {multipleEvents && (
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+            <div className="space-y-2">
               <button
                 onClick={() => setGroupFilter('all')}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap shrink-0',
+                  'w-full px-3 py-2 rounded-lg text-[11px] font-medium transition-all text-center',
                   groupFilter === 'all'
                     ? 'bg-primary/15 text-primary border border-primary/20'
                     : 'bg-white/5 text-white-muted border border-transparent',
                 )}
               >
-                Todos
+                Todos los grupos ({eventIds.length})
               </button>
-              {Object.entries(eventNameMap).map(([id, name]) => (
-                <button
-                  key={id}
-                  onClick={() => setGroupFilter(id)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap shrink-0',
-                    groupFilter === id
-                      ? 'bg-primary/15 text-primary border border-primary/20'
-                      : 'bg-white/5 text-white-muted border border-transparent',
-                  )}
-                >
-                  {name}
-                </button>
-              ))}
+              <div className="space-y-2.5">
+                {eventsByDay.map(({ key, label, events }) => (
+                  <div key={key} className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">{label}</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {events.map(ev => {
+                        const name = ev.group_name || ev.title
+                        const time = new Date(ev.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+                        const selected = groupFilter === ev.id
+                        return (
+                          <button
+                            key={ev.id}
+                            onClick={() => setGroupFilter(ev.id)}
+                            className={cn(
+                              'px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5',
+                              selected
+                                ? 'bg-primary/15 text-primary border border-primary/20'
+                                : 'bg-white/5 text-white-muted border border-transparent',
+                            )}
+                          >
+                            <span className="truncate max-w-[160px]">{name}</span>
+                            <span className={cn('text-[10px] tabular-nums', selected ? 'text-primary/70' : 'text-white/30')}>{time}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
