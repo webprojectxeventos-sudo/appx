@@ -99,6 +99,7 @@ export default function ScannerPage() {
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
+  const [cameraError, setCameraError] = useState<string | null>(null)
 
   // Door registration state
   const [doorName, setDoorName] = useState('')
@@ -295,9 +296,17 @@ export default function ScannerPage() {
   const startScanner = useCallback(async () => {
     if (!scannerRef.current || scanning) return
     setScanResult(null)
+    setCameraError(null)
     setScanning(true)
     processedQRs.current.clear()
     processingRef.current = false
+
+    // Guard: browsers / webviews that don't expose getUserMedia at all
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setScanning(false)
+      setCameraError('Tu dispositivo no soporta el escaner de camara.')
+      return
+    }
 
     try {
       const { Html5Qrcode } = await import('html5-qrcode')
@@ -321,6 +330,18 @@ export default function ScannerPage() {
     } catch (err) {
       console.error('Scanner error:', err)
       setScanning(false)
+      // Turn the raw browser/webview error into something a human can act on.
+      const raw = err instanceof Error ? err.message : String(err ?? '')
+      const name = err instanceof Error ? err.name : ''
+      if (name === 'NotAllowedError' || /denied|permiso|permission/i.test(raw)) {
+        setCameraError('Permite el acceso a la camara en Ajustes > Project X para usar el escaner.')
+      } else if (name === 'NotFoundError' || /no camera|device not found/i.test(raw)) {
+        setCameraError('No se detecto ninguna camara en este dispositivo.')
+      } else if (name === 'NotReadableError' || /in use|hardware/i.test(raw)) {
+        setCameraError('La camara esta siendo usada por otra aplicacion. Cierrala e intentalo de nuevo.')
+      } else {
+        setCameraError('No se pudo iniciar el escaner. Cierra y vuelve a abrir la app, o revisa los permisos de camara.')
+      }
     }
   }, [scanning])
 
@@ -684,6 +705,24 @@ export default function ScannerPage() {
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
           </div>
+
+          {/* Camera error banner — shown when getUserMedia fails or permission denied */}
+          {cameraError && (
+            <div className="card p-4 border-red-500/30 bg-red-500/5">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+                  <XCircle className="w-4 h-4 text-red-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-red-400">Camara no disponible</p>
+                  <p className="text-xs text-white-muted mt-1 leading-relaxed">{cameraError}</p>
+                  <p className="text-[11px] text-white/30 mt-2">
+                    Mientras tanto puedes validar entradas a mano en la pestana <span className="text-white-muted">Lista</span>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Non-continuous scan result (when scanner is stopped) */}
           {!scanning && scanResult && (

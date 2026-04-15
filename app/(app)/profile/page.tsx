@@ -436,13 +436,17 @@ export default function ProfilePage() {
       </div>
 
       {/* Legal links */}
-      <div className="flex items-center justify-center gap-3 pt-2">
+      <div className="flex items-center justify-center gap-3 pt-2 flex-wrap">
         <Link href="/privacy" className="text-[11px] text-white/30 hover:text-white/60 transition-colors">
           Politica de Privacidad
         </Link>
-        <span className="text-white/15">·</span>
+        <span className="text-white/15">&middot;</span>
         <Link href="/terms" className="text-[11px] text-white/30 hover:text-white/60 transition-colors">
           Terminos de Servicio
+        </Link>
+        <span className="text-white/15">&middot;</span>
+        <Link href="/support" className="text-[11px] text-white/30 hover:text-white/60 transition-colors">
+          Soporte
         </Link>
       </div>
     </div>
