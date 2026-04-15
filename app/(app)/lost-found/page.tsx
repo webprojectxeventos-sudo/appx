@@ -28,15 +28,26 @@ export default function LostFoundPage() {
   const [locationHint, setLocationHint] = useState('')
   const [contactInfo, setContactInfo] = useState('')
   const [adding, setAdding] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const fetchItems = useCallback(async () => {
     if (!event?.id) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('lost_found')
       .select('id, description, location_hint, contact_info, status, created_at, user_id, event_id')
       .eq('event_id', event.id)
       .order('created_at', { ascending: false })
 
+    if (error) {
+      console.error('[lost-found] fetch error:', error)
+      // Missing-table errors (PGRST205) are a setup issue, not a transient one.
+      // Surface a clear message so the screen doesn't look silently broken.
+      if ((error as { code?: string }).code === 'PGRST205') {
+        setErrorMsg('La tabla de objetos perdidos aun no esta disponible para este evento.')
+      }
+      setLoading(false)
+      return
+    }
     if (!data) { setLoading(false); return }
 
     const userIds = [...new Set(data.map(d => d.user_id))]
@@ -65,7 +76,8 @@ export default function LostFoundPage() {
   const handleAdd = async () => {
     if (!description.trim() || !user?.id || !event?.id) return
     setAdding(true)
-    await supabase.from('lost_found').insert({
+    setErrorMsg(null)
+    const { error } = await supabase.from('lost_found').insert({
       event_id: event.id,
       user_id: user.id,
       description: description.trim(),
@@ -73,11 +85,20 @@ export default function LostFoundPage() {
       contact_info: contactInfo.trim() || null,
       status: 'lost',
     })
+    setAdding(false)
+    if (error) {
+      console.error('[lost-found] insert error:', error)
+      setErrorMsg(
+        (error as { code?: string }).code === 'PGRST205'
+          ? 'La tabla de objetos perdidos aun no esta disponible. Avisa al organizador.'
+          : 'No se pudo publicar el objeto. Intentalo de nuevo.'
+      )
+      return
+    }
     setDescription('')
     setLocationHint('')
     setContactInfo('')
     setShowAdd(false)
-    setAdding(false)
     fetchItems()
   }
 
@@ -188,6 +209,11 @@ export default function LostFoundPage() {
               'Publicar objeto perdido'
             )}
           </button>
+          {errorMsg && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {errorMsg}
+            </div>
+          )}
         </div>
       )}
 

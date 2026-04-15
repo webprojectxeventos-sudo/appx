@@ -62,6 +62,9 @@ android/app/build/
 android/.gradle/
 android/capacitor-cordova-android-plugins/build/
 
+# supabase cli transient cache
+supabase/.temp/
+
 # android signing — NEVER commit
 android/local.properties
 android/keystore.properties
