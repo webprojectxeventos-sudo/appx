@@ -17,26 +17,56 @@ export default function ResetPasswordPage() {
   const [expired, setExpired] = useState(false)
   const readyRef = useRef(false)
 
-  // Wait for Supabase to process the recovery token from the URL hash
+  // Wait for Supabase to process the recovery token from the URL hash.
+  //
+  // Flow:
+  //  1. User clicks reset link → Supabase redirects to /reset-password with
+  //     either `#access_token=...&type=recovery` (happy path) or
+  //     `#error=...&error_description=...` (expired / invalid).
+  //  2. The SDK's _initialize() reads the hash, exchanges it for a session,
+  //     then clears the hash with `window.location.hash = ''` (on success
+  //     only — error params stay in place).
+  //  3. It fires PASSWORD_RECOVERY via `setTimeout(0)` AFTER initializePromise
+  //     resolves. If our subscription registers *after* that setTimeout runs
+  //     (slow React mount, etc.) we miss the event entirely.
+  //
+  // So: check the hash synchronously for an explicit error, then listen for
+  // both PASSWORD_RECOVERY (fast path) and INITIAL_SESSION (guaranteed-to-fire
+  // fallback). If INITIAL_SESSION has a session, Supabase either (a) processed
+  // the recovery hash before we subscribed, or (b) the user is already logged
+  // in — both are fine, they can update the password. No session → the link
+  // didn't work, so expire.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    if (typeof window !== 'undefined') {
+      const errParams = new URLSearchParams(window.location.hash.substring(1))
+      if (errParams.get('error') || errParams.get('error_description')) {
+        setExpired(true)
+        return
+      }
+    }
+
+    let disposed = false
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (disposed) return
+
       if (event === 'PASSWORD_RECOVERY') {
         readyRef.current = true
         setReady(true)
         setExpired(false)
+      } else if (event === 'INITIAL_SESSION') {
+        if (session) {
+          readyRef.current = true
+          setReady(true)
+          setExpired(false)
+        } else {
+          setExpired(true)
+        }
       }
     })
 
-    // Timeout: si no llega el evento en 4s, el enlace es inválido
-    const timeout = setTimeout(() => {
-      if (!readyRef.current) {
-        setExpired(true)
-      }
-    }, 4000)
-
     return () => {
+      disposed = true
       subscription.unsubscribe()
-      clearTimeout(timeout)
     }
   }, [])
 
