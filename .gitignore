@@ -67,3 +67,8 @@ android/local.properties
 android/keystore.properties
 *.jks
 *.keystore
+
+# transient Play Store assets (AAB + screenshots used for upload via JS bypass)
+public/playstore-bundle.aab
+public/playstore-feature.png
+public/playstore-phone-*.png
