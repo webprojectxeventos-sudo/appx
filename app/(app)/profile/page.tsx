@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
-import { User, Camera, Check, ChevronLeft, Bell, BellOff, Lock } from 'lucide-react'
+import { User, Camera, Check, ChevronLeft, Bell, BellOff, Lock, Trash2, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +38,11 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordLoading, setPasswordLoading] = useState(false)
+
+  // Delete account
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -156,6 +161,45 @@ export default function ProfilePage() {
       showError('Error al cambiar la contraseña')
     } finally {
       setPasswordLoading(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    if (!user) return
+    if (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') {
+      showError('Escribe ELIMINAR para confirmar')
+      return
+    }
+
+    setDeleteLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        showError('Sesion no valida, inicia sesion de nuevo')
+        setDeleteLoading(false)
+        return
+      }
+
+      const res = await fetch('/api/user/delete-account', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        showError(data.error || 'Error al eliminar la cuenta')
+        setDeleteLoading(false)
+        return
+      }
+
+      success('Cuenta eliminada. Hasta pronto.')
+      // Clear local session and redirect to login
+      await supabase.auth.signOut()
+      setTimeout(() => { window.location.href = '/login' }, 800)
+    } catch {
+      showError('Error al eliminar la cuenta')
+      setDeleteLoading(false)
     }
   }
 
@@ -334,6 +378,61 @@ export default function ProfilePage() {
           'Guardar cambios'
         )}
       </button>
+
+      {/* Delete account — danger zone */}
+      <div className="card p-5 border-red-500/20 bg-red-500/[0.02]">
+        {!showDeleteConfirm ? (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="flex items-center gap-3 w-full text-left"
+          >
+            <Trash2 className="w-5 h-5 text-red-400" />
+            <div>
+              <p className="text-sm font-medium text-red-400">Eliminar cuenta</p>
+              <p className="text-[11px] text-white-muted">Borra tu cuenta y todos tus datos de forma permanente</p>
+            </div>
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-400 mb-1">Accion irreversible</p>
+                <p className="text-[11px] text-white-muted leading-relaxed">
+                  Se eliminaran permanentemente: tu perfil, tickets, mensajes de chat, fotos, votos, pedidos y avatar.
+                  Esta accion no se puede deshacer y no podras recuperar tus datos.
+                </p>
+              </div>
+            </div>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Escribe ELIMINAR para confirmar"
+              className="w-full px-4 py-3 rounded-xl border border-red-500/30 bg-transparent text-white placeholder:text-red-500/40 text-sm focus:outline-none focus:border-red-500/60 transition-colors"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-black-border text-white hover:bg-white/5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteLoading || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR'}
+                className={cn(
+                  'flex-1 py-2.5 rounded-xl text-sm font-medium bg-red-500/20 border border-red-500/40 text-red-400 transition-all',
+                  'disabled:opacity-40 disabled:cursor-not-allowed',
+                  'hover:bg-red-500/30 active:scale-[0.98]',
+                )}
+              >
+                {deleteLoading ? 'Eliminando...' : 'Eliminar mi cuenta'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Legal links */}
       <div className="flex items-center justify-center gap-3 pt-2">
