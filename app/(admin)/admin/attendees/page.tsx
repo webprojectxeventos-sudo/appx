@@ -11,7 +11,7 @@ import { BanModal } from '@/components/admin/attendees/ban-modal'
 import { cn } from '@/lib/utils'
 import {
   Users, VolumeX, Volume2, Shield, ShieldOff, ScanLine, Clock,
-  User, Filter, ChevronDown,
+  User, Filter, ChevronDown, Calendar,
 } from 'lucide-react'
 import type { Database } from '@/lib/types'
 
@@ -210,11 +210,15 @@ export default function AttendeesPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Header */}
+      {/* Header — show event context so the admin knows whose attendees these are */}
       <div>
         <h1 className="text-xl font-bold text-white">Asistentes</h1>
         <p className="text-sm text-white-muted mt-0.5">
-          Gestiona los asistentes de tus eventos
+          {events.length === 0
+            ? 'Sin eventos asignados'
+            : events.length === 1
+              ? `Grupo: ${events[0].group_name || events[0].title}`
+              : `Asistentes de tus ${events.length} eventos`}
         </p>
       </div>
 
@@ -356,12 +360,16 @@ export default function AttendeesPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[11px] text-white-muted truncate">{att.email}</span>
+                {/* Email + group on separate lines so the event context is always
+                    visible on mobile too. The group name is tinted with the brand
+                    primary so it visually reads as "this is which event" at a glance. */}
+                <div className="mt-0.5 space-y-0.5">
+                  <p className="text-[11px] text-white-muted truncate">{att.email}</p>
                   {events.length > 1 && (
-                    <span className="text-[10px] text-white-muted/60 truncate hidden md:inline">
-                      {att.groupName || att.eventTitle}
-                    </span>
+                    <p className="text-[10px] text-primary/70 truncate flex items-center gap-1">
+                      <Calendar className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">{att.groupName || att.eventTitle}</span>
+                    </p>
                   )}
                 </div>
               </div>
