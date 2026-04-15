@@ -449,6 +449,17 @@ body {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
+/* ── Shimmer for text wordmark (background-position sweep) ── */
+
+@keyframes shimmer-text {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-shimmer {
+  animation: shimmer-text 2.5s linear infinite;
+}
+
 /* ── Announcement toast animation ────────────────────── */
 
 @keyframes toast-in {

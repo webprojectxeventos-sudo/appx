@@ -90,15 +90,17 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         </div>
         <div className="flex items-center gap-2">
           {profile && (
-            <div className="flex items-center gap-2 mr-1">
-              <div className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center overflow-hidden">
-                {profile.avatar_url ? (
-                  <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-3.5 h-3.5 text-white-muted" />
-                )}
-              </div>
-            </div>
+            <Link
+              href="/profile"
+              className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center overflow-hidden hover:ring-2 hover:ring-primary/30 transition-all"
+              title="Mi perfil"
+            >
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-4 h-4 text-white-muted" />
+              )}
+            </Link>
           )}
           <button onClick={signOut} className="p-2.5 -mr-1 rounded-xl text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10 transition-colors" title="Cerrar sesion">
             <LogOut className="w-5 h-5" />

@@ -15,8 +15,9 @@ const GENDER_OPTIONS = [
 ]
 
 export default function ProfilePage() {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile, refreshProfile, isAdmin } = useAuth()
   const { error: showError, success } = useToast()
+  const backHref = isAdmin ? '/admin/dashboard' : '/home'
   const [fullName, setFullName] = useState(profile?.full_name || '')
   const [gender, setGender] = useState(profile?.gender || '')
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '')
@@ -211,7 +212,7 @@ export default function ProfilePage() {
   return (
     <div className="animate-fade-in space-y-6">
       {/* Back */}
-      <Link href="/home" className="inline-flex items-center gap-1.5 text-sm text-white-muted hover:text-white transition-colors">
+      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-white-muted hover:text-white transition-colors">
         <ChevronLeft className="w-4 h-4" />
         Volver
       </Link>

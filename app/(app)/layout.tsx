@@ -190,12 +190,14 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
     }
   }, [initialized, user, router])
 
-  // Admin guard — admins should use the admin panel, not the attendee view
+  // Admin guard — admins should use the admin panel, not the attendee view.
+  // Exception: /profile is a user-level screen (edit name, password, avatar,
+  // delete account) that admins also need access to — don't redirect from it.
   useEffect(() => {
-    if (initialized && !loading && isAdmin) {
+    if (initialized && !loading && isAdmin && pathname !== '/profile') {
       router.replace('/admin/dashboard')
     }
-  }, [initialized, loading, isAdmin, router])
+  }, [initialized, loading, isAdmin, pathname, router])
 
   // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {
