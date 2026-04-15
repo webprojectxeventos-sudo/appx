@@ -18,7 +18,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
       </main>
       <footer className="border-t border-white/[0.06] py-6 text-center">
         <p className="text-xs text-white/30">
-          &copy; {new Date().getFullYear()} Project X — JV Group Premium Events &amp; Business S.L.
+          &copy; {new Date().getFullYear()}{' '}Project X — JV Group Premium Events &amp; Business S.L.
         </p>
       </footer>
     </div>

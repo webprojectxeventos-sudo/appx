@@ -61,6 +61,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     { href: '/scanner', label: 'Scanner', icon: ScanLine },
     { href: '/admin/comms', label: 'Comunicacion', icon: MessageCircle },
     { href: '/admin/incidents', label: 'Incidencias', icon: AlertTriangle },
+    { href: '/admin/attendees', label: 'Asistentes', icon: UsersRound },
   ]
 
   const superAdminNavItems = [

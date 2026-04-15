@@ -39,7 +39,14 @@ export default function LostFoundPage() {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('[lost-found] fetch error:', error)
+      // Supabase errors stringify to "[object Object]" when concatenated, which
+      // hides the actual cause. Log each field explicitly so devtools shows it.
+      console.error('[lost-found] fetch error:', {
+        code: (error as { code?: string }).code,
+        message: error.message,
+        details: (error as { details?: string }).details,
+        hint: (error as { hint?: string }).hint,
+      })
       // Missing-table errors (PGRST205) are a setup issue, not a transient one.
       // Surface a clear message so the screen doesn't look silently broken.
       if ((error as { code?: string }).code === 'PGRST205') {
@@ -87,7 +94,12 @@ export default function LostFoundPage() {
     })
     setAdding(false)
     if (error) {
-      console.error('[lost-found] insert error:', error)
+      console.error('[lost-found] insert error:', {
+        code: (error as { code?: string }).code,
+        message: error.message,
+        details: (error as { details?: string }).details,
+        hint: (error as { hint?: string }).hint,
+      })
       setErrorMsg(
         (error as { code?: string }).code === 'PGRST205'
           ? 'La tabla de objetos perdidos aun no esta disponible. Avisa al organizador.'
