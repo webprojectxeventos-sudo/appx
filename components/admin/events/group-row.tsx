@@ -10,14 +10,17 @@ import type { Database } from '@/lib/types'
 type Event = Database['public']['Tables']['events']['Row']
 type Venue = Database['public']['Tables']['venues']['Row']
 
+type EventMutator = (prev: Event[]) => Event[]
+
 interface GroupRowProps {
   event: Event
   otherVenues: Venue[]
   onRefresh: () => void
+  onMutate?: (mutator: EventMutator) => void
   onSelect?: (event: Event) => void
 }
 
-export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowProps) {
+export function GroupRow({ event, otherVenues, onRefresh, onMutate, onSelect }: GroupRowProps) {
   const { error: showError, success } = useToast()
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(event.title)
@@ -47,22 +50,30 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
     setLoading(false)
     if (error) { showError('Error al renombrar'); return }
     setEditing(false)
-    onRefresh()
+    if (onMutate) {
+      onMutate(prev => prev.map(e => e.id === event.id ? { ...e, title: name, group_name: name } : e))
+    } else {
+      onRefresh()
+    }
   }
 
   const handleDelete = async () => {
     if (!confirm(`Eliminar "${event.title}" y todos sus datos?`)) return
-    setLoading(true)
+    // Optimistic: remove from UI immediately
+    if (onMutate) onMutate(prev => prev.filter(e => e.id !== event.id))
     try {
       const res = await authFetch('/api/admin/delete-event', { eventId: event.id })
       const data = await res.json()
-      if (!res.ok) { showError(data.error || 'Error al eliminar'); return }
+      if (!res.ok) {
+        showError(data.error || 'Error al eliminar')
+        // Rollback: re-add event on failure
+        if (onMutate) onMutate(prev => [...prev, event].sort((a, b) => a.title.localeCompare(b.title)))
+        return
+      }
       success('Grupo eliminado')
-      onRefresh()
     } catch {
       showError('Error de conexion al eliminar')
-    } finally {
-      setLoading(false)
+      if (onMutate) onMutate(prev => [...prev, event].sort((a, b) => a.title.localeCompare(b.title)))
     }
   }
 
@@ -73,7 +84,11 @@ export function GroupRow({ event, otherVenues, onRefresh, onSelect }: GroupRowPr
     setLoading(false)
     if (error) { showError('Error al mover'); return }
     success('Grupo movido')
-    onRefresh()
+    if (onMutate) {
+      onMutate(prev => prev.map(e => e.id === event.id ? { ...e, venue_id: targetVenueId } : e))
+    } else {
+      onRefresh()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

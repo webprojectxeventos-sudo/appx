@@ -12,6 +12,10 @@ function generateEventCode(): string {
   return code
 }
 
+import type { Database } from '@/lib/types'
+
+type Event = Database['public']['Tables']['events']['Row']
+
 interface QuickAddInputProps {
   venueId: string
   date: string
@@ -19,9 +23,10 @@ interface QuickAddInputProps {
   organizationId: string
   userId: string
   onCreated: () => void
+  onMutate?: (mutator: (prev: Event[]) => Event[]) => void
 }
 
-export function QuickAddInput({ venueId, date, eventType, organizationId, userId, onCreated }: QuickAddInputProps) {
+export function QuickAddInput({ venueId, date, eventType, organizationId, userId, onCreated, onMutate }: QuickAddInputProps) {
   const { error: showError } = useToast()
   const [value, setValue] = useState('')
   const [showCheck, setShowCheck] = useState(false)
@@ -32,7 +37,7 @@ export function QuickAddInput({ venueId, date, eventType, organizationId, userId
     const name = value.trim()
     if (!name) return
     setLoading(true)
-    const { error } = await supabase.from('events').insert({
+    const { data: inserted, error } = await supabase.from('events').insert({
       title: name,
       group_name: name,
       date: new Date(date.includes('T') ? date : `${date}T22:00:00`).toISOString(),
@@ -41,9 +46,9 @@ export function QuickAddInput({ venueId, date, eventType, organizationId, userId
       event_code: generateEventCode(),
       organization_id: organizationId,
       created_by: userId,
-    })
+    }).select().single()
     setLoading(false)
-    if (error) {
+    if (error || !inserted) {
       showError('Error al crear grupo')
       return
     }
@@ -51,7 +56,11 @@ export function QuickAddInput({ venueId, date, eventType, organizationId, userId
     setShowCheck(true)
     setTimeout(() => setShowCheck(false), 800)
     inputRef.current?.focus()
-    onCreated()
+    if (onMutate) {
+      onMutate(prev => [...prev, inserted])
+    } else {
+      onCreated()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

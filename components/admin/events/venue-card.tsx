@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Layers, PartyPopper, GraduationCap, Trash2, MapPin } from 'lucide-react'
+import { Layers, PartyPopper, GraduationCap, Trash2, MapPin, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GroupRow } from './group-row'
 import { QuickAddInput } from './quick-add-input'
@@ -11,6 +11,8 @@ import type { Database } from '@/lib/types'
 type Event = Database['public']['Tables']['events']['Row']
 type Venue = Database['public']['Tables']['venues']['Row']
 
+type EventMutator = (prev: Event[]) => Event[]
+
 interface VenueCardProps {
   venue: Venue
   groups: Event[]
@@ -19,20 +21,89 @@ interface VenueCardProps {
   organizationId: string
   userId: string
   onRefresh: () => void
+  onMutate?: (mutator: EventMutator) => void
   onSelectGroup?: (event: Event) => void
   onDeleteVenue?: (venueId: string, venueName: string) => void
+  compact?: boolean
 }
 
-export function VenueCard({ venue, groups, otherVenues, date, organizationId, userId, onRefresh, onSelectGroup, onDeleteVenue }: VenueCardProps) {
+export function VenueCard({ venue, groups, otherVenues, date, organizationId, userId, onRefresh, onMutate, onSelectGroup, onDeleteVenue, compact }: VenueCardProps) {
   const [showBatch, setShowBatch] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   const eventType: 'eso' | 'fiesta' = groups.length > 0
     ? (groups.filter(g => g.event_type === 'eso').length > groups.length / 2 ? 'eso' : 'fiesta')
     : 'fiesta'
 
+  // ── Compact / list mode ──
+  if (compact) {
+    return (
+      <>
+        <div className="card overflow-hidden">
+          {/* Collapsible header */}
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
+          >
+            <ChevronDown className={cn('w-4 h-4 text-white-muted transition-transform shrink-0', expanded && 'rotate-180')} />
+            <h3 className="text-sm font-bold text-white truncate text-left flex-1">{venue.name}</h3>
+            {venue.city && (
+              <span className="text-[11px] text-white-muted/60 hidden sm:block">{venue.city}</span>
+            )}
+            <span className={cn(
+              'flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg shrink-0',
+              eventType === 'fiesta' ? 'bg-primary/15 text-primary' : 'bg-blue-500/15 text-blue-400',
+            )}>
+              {eventType === 'fiesta' ? <PartyPopper className="w-3 h-3" /> : <GraduationCap className="w-3 h-3" />}
+              {eventType === 'fiesta' ? 'Fiesta' : 'ESO'}
+            </span>
+            <span className="text-xs font-bold text-white bg-white/10 px-2 py-0.5 rounded-lg shrink-0">
+              {groups.length}
+            </span>
+            {onDeleteVenue && (
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); onDeleteVenue(venue.id, venue.name) }}
+                className="p-1.5 rounded-lg text-white-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </button>
+
+          {/* Expandable body */}
+          {expanded && (
+            <>
+              <div className="h-px bg-black-border" />
+              <div className={cn('py-1', groups.length > 12 && 'max-h-[340px] overflow-y-auto scrollbar-none')}>
+                {groups.length === 0 ? (
+                  <p className="py-6 text-center text-white-muted text-sm">Sin grupos</p>
+                ) : (
+                  groups.map(group => (
+                    <GroupRow key={group.id} event={group} otherVenues={otherVenues} onRefresh={onRefresh} onMutate={onMutate} onSelect={onSelectGroup} />
+                  ))
+                )}
+              </div>
+              <div className="border-t border-black-border">
+                <QuickAddInput venueId={venue.id} date={date} eventType={eventType} organizationId={organizationId} userId={userId} onCreated={onRefresh} onMutate={onMutate} />
+                <div className="px-4 pb-2.5 flex items-center gap-2">
+                  <button onClick={() => setShowBatch(true)} className="flex-1 py-2 text-xs font-medium text-white-muted border border-dashed border-black-border rounded-xl hover:border-primary/30 hover:text-primary active:bg-primary/5 transition-all">
+                    Añadir en lote
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <BatchAddModal open={showBatch} onClose={() => setShowBatch(false)} venueId={venue.id} venueName={venue.name} date={date} eventType={eventType} organizationId={organizationId} userId={userId} onCreated={onRefresh} onMutate={onMutate} />
+      </>
+    )
+  }
+
+  // ── Full / grid mode ──
   return (
     <>
-      <div className="card flex flex-col w-full md:min-w-[320px] md:max-w-[420px] overflow-hidden">
+      <div className="card flex flex-col w-full overflow-hidden">
         {/* Header with image or gradient fallback */}
         <div className="relative">
           {venue.image_url ? (
@@ -99,6 +170,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
                 event={group}
                 otherVenues={otherVenues}
                 onRefresh={onRefresh}
+                onMutate={onMutate}
                 onSelect={onSelectGroup}
               />
             ))
@@ -114,6 +186,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
             organizationId={organizationId}
             userId={userId}
             onCreated={onRefresh}
+            onMutate={onMutate}
           />
           <div className="px-4 pb-3 flex items-center gap-2">
             <button
@@ -145,6 +218,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
         organizationId={organizationId}
         userId={userId}
         onCreated={onRefresh}
+        onMutate={onMutate}
       />
     </>
   )

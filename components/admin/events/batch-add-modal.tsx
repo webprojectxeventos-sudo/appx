@@ -13,6 +13,10 @@ function generateEventCode(): string {
   return code
 }
 
+import type { Database } from '@/lib/types'
+
+type Event = Database['public']['Tables']['events']['Row']
+
 interface BatchAddModalProps {
   open: boolean
   onClose: () => void
@@ -23,10 +27,11 @@ interface BatchAddModalProps {
   organizationId: string
   userId: string
   onCreated: () => void
+  onMutate?: (mutator: (prev: Event[]) => Event[]) => void
 }
 
 export function BatchAddModal({
-  open, onClose, venueId, venueName, date, eventType: defaultType, organizationId, userId, onCreated,
+  open, onClose, venueId, venueName, date, eventType: defaultType, organizationId, userId, onCreated, onMutate,
 }: BatchAddModalProps) {
   const { error: showError, success } = useToast()
   const [text, setText] = useState('')
@@ -50,7 +55,7 @@ export function BatchAddModal({
       created_by: userId,
     }))
 
-    const { error } = await supabase.from('events').insert(rows)
+    const { data: inserted, error } = await supabase.from('events').insert(rows).select()
     setLoading(false)
 
     if (error) {
@@ -60,7 +65,11 @@ export function BatchAddModal({
 
     setResult(names.length)
     success(`${names.length} grupos creados`)
-    onCreated()
+    if (onMutate && inserted && inserted.length > 0) {
+      onMutate(prev => [...prev, ...inserted])
+    } else {
+      onCreated()
+    }
 
     setTimeout(() => {
       setText('')

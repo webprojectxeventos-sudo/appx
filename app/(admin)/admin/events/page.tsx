@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
-import { Plus } from 'lucide-react'
-import { toLocalDateKey } from '@/lib/utils'
+import { Plus, LayoutGrid, List, CalendarDays, MapPin } from 'lucide-react'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
 import { SearchInput } from '@/components/admin/search-input'
-import { DateStrip } from '@/components/admin/events/date-strip'
+import { DateNavigator } from '@/components/admin/events/date-navigator'
 import { VenueCard } from '@/components/admin/events/venue-card'
 import { NewSessionModal } from '@/components/admin/events/new-session-modal'
 import { VenuePickerModal } from '@/components/admin/events/venue-picker-modal'
@@ -30,7 +30,8 @@ export default function EventsPage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
-  // Modals
+  // View mode & modals
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [showNewSession, setShowNewSession] = useState(false)
   const [showAddVenue, setShowAddVenue] = useState(false)
 
@@ -82,6 +83,14 @@ export default function EventsPage() {
     }
   }, [allEvents, drawerEvent])
 
+  // Optimistic local-state mutator — children call this to update the
+  // events array without a full refetch.  Falls back to handleRefresh
+  // when onMutate is not wired.
+  const handleMutateEvents = useCallback(
+    (mutator: (prev: Event[]) => Event[]) => setAllEvents(mutator),
+    [],
+  )
+
   const handleRefresh = useCallback(async () => {
     await fetchData()
     adminCtx.refresh()
@@ -123,16 +132,28 @@ export default function EventsPage() {
     [allEvents, selectedDate]
   )
 
-  // Filter by search
-  const filteredEvents = useMemo(() => {
-    if (!search.trim()) return eventsForDate
+  // Venue lookup for rendering search results
+  const venueMap = useMemo(() => new Map(allVenues.map(v => [v.id, v])), [allVenues])
+
+  // Global cross-date search (when search is active)
+  const isSearching = search.trim().length > 0
+  const globalSearchResults = useMemo(() => {
+    if (!isSearching) return []
     const q = search.toLowerCase()
-    return eventsForDate.filter(e =>
-      e.title.toLowerCase().includes(q) ||
-      e.event_code.toLowerCase().includes(q) ||
-      (e.group_name || '').toLowerCase().includes(q)
-    )
-  }, [eventsForDate, search])
+    return allEvents
+      .filter(e =>
+        e.title.toLowerCase().includes(q) ||
+        e.event_code.toLowerCase().includes(q) ||
+        (e.group_name || '').toLowerCase().includes(q)
+      )
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [allEvents, search, isSearching])
+
+  // Filter within selected date (used when NOT searching globally)
+  const filteredEvents = useMemo(() => {
+    if (isSearching) return eventsForDate // still used for venue groups below
+    return eventsForDate
+  }, [eventsForDate, isSearching])
 
   // Group events by venue
   const venueGroups = useMemo(() => {
@@ -289,61 +310,159 @@ export default function EventsPage() {
         </button>
       </div>
 
-      {/* Date strip */}
-      {dates.length > 0 && (
-        <DateStrip
-          dates={dates}
-          selectedDate={selectedDate}
-          onSelect={setSelectedDate}
-          onAddDate={() => setShowNewSession(true)}
-          onDeleteDate={handleDeleteDate}
-          eventCounts={eventCounts}
-        />
-      )}
-
-      {/* Search (only when there are events) */}
-      {eventsForDate.length > 0 && (
+      {/* Global search — always visible when there are events */}
+      {allEvents.length > 0 && (
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Buscar grupos por nombre o codigo..."
+          placeholder="Buscar grupos en todas las fechas..."
         />
       )}
 
-      {/* Board: Venue columns */}
-      {selectedDate && (
-        <div className="flex flex-col md:flex-row gap-4 md:items-start md:overflow-x-auto pb-4 scrollbar-none">
-          {displayVenues.map(venue => (
-            <VenueCard
-              key={venue.id}
-              venue={venue}
-              groups={venueGroups.get(venue.id) || []}
-              otherVenues={displayVenues.filter(v => v.id !== venue.id)}
-              date={selectedDate}
-              organizationId={organization?.id || ''}
-              userId={user?.id || ''}
-              onRefresh={handleRefresh}
-              onSelectGroup={setDrawerEvent}
-              onDeleteVenue={handleDeleteVenue}
-            />
-          ))}
-
-          {/* Add venue card — opens modal (works on mobile + doesn't clip in overflow containers) */}
-          <div className="shrink-0 md:min-w-[280px]">
-            <button
-              onClick={() => setShowAddVenue(true)}
-              className="flex flex-col items-center justify-center w-full min-h-[160px] rounded-2xl border-2 border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary hover:bg-primary/[0.02] active:bg-primary/5 transition-all"
-            >
-              <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-3">
-                <Plus className="w-6 h-6" />
-              </div>
-              <span className="text-sm font-medium">Añadir venue</span>
-              <span className="text-[11px] text-white-muted/60 mt-0.5">
-                {availableVenues.length > 0 ? `${availableVenues.length} disponibles` : 'Crea uno nuevo'}
-              </span>
-            </button>
+      {/* Search results overlay — replaces calendar + board when active */}
+      {isSearching ? (
+        <div className="space-y-2">
+          <p className="text-xs text-white-muted">
+            {globalSearchResults.length === 0
+              ? 'Sin resultados'
+              : `${globalSearchResults.length} resultado${globalSearchResults.length > 1 ? 's' : ''} en todas las fechas`}
+          </p>
+          <div className="card divide-y divide-black-border overflow-hidden">
+            {globalSearchResults.slice(0, 50).map(ev => {
+              const venueName = ev.venue_id ? venueMap.get(ev.venue_id)?.name : null
+              const dateLabel = new Date(ev.date).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+              return (
+                <button
+                  key={ev.id}
+                  onClick={() => {
+                    setSelectedDate(toLocalDateKey(ev.date))
+                    setDrawerEvent(ev)
+                    setSearch('')
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] active:bg-white/[0.06] transition-colors text-left"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{ev.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {venueName && (
+                        <span className="flex items-center gap-1 text-[11px] text-white-muted">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          {venueName}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 text-[11px] text-white-muted capitalize">
+                        <CalendarDays className="w-3 h-3 shrink-0" />
+                        {dateLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-mono text-white-muted bg-white/5 px-2 py-0.5 rounded-lg shrink-0">
+                    {ev.event_code}
+                  </span>
+                </button>
+              )
+            })}
           </div>
+          {globalSearchResults.length > 50 && (
+            <p className="text-xs text-white-muted text-center">Mostrando 50 de {globalSearchResults.length} — refina tu búsqueda</p>
+          )}
         </div>
+      ) : (
+        <>
+          {/* Date navigator — mini calendar */}
+          {dates.length > 0 && (
+            <DateNavigator
+              dates={dates}
+              selectedDate={selectedDate}
+              onSelect={setSelectedDate}
+              onAddDate={() => setShowNewSession(true)}
+              onDeleteDate={handleDeleteDate}
+              eventCounts={eventCounts}
+            />
+          )}
+
+          {/* View toggle (only when viewing a date with events) */}
+          {selectedDate && eventsForDate.length > 0 && (
+            <div className="flex items-center justify-end">
+              <div className="flex items-center rounded-xl border border-black-border p-0.5">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={cn(
+                    'p-2 rounded-lg transition-all',
+                    viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white-muted hover:text-white',
+                  )}
+                  title="Vista cuadrícula"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={cn(
+                    'p-2 rounded-lg transition-all',
+                    viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white-muted hover:text-white',
+                  )}
+                  title="Vista lista"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Board: Venue cards */}
+          {selectedDate && (
+            <div className={cn(
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start'
+                : 'flex flex-col gap-3',
+            )}>
+              {displayVenues.map(venue => (
+                <VenueCard
+                  key={venue.id}
+                  venue={venue}
+                  groups={venueGroups.get(venue.id) || []}
+                  otherVenues={displayVenues.filter(v => v.id !== venue.id)}
+                  date={selectedDate}
+                  organizationId={organization?.id || ''}
+                  userId={user?.id || ''}
+                  onRefresh={handleRefresh}
+                  onMutate={handleMutateEvents}
+                  onSelectGroup={setDrawerEvent}
+                  onDeleteVenue={handleDeleteVenue}
+                  compact={viewMode === 'list'}
+                />
+              ))}
+
+              {/* Add venue card */}
+              <button
+                onClick={() => setShowAddVenue(true)}
+                className={cn(
+                  'flex items-center justify-center rounded-2xl border-2 border-dashed border-black-border text-white-muted hover:border-primary/30 hover:text-primary hover:bg-primary/[0.02] active:bg-primary/5 transition-all',
+                  viewMode === 'grid'
+                    ? 'flex-col min-h-[160px] gap-3'
+                    : 'flex-row gap-2 py-4 px-5',
+                )}
+              >
+                {viewMode === 'grid' ? (
+                  <>
+                    <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center">
+                      <Plus className="w-6 h-6" />
+                    </div>
+                    <span className="text-sm font-medium">Añadir venue</span>
+                    <span className="text-[11px] text-white-muted/60">
+                      {availableVenues.length > 0 ? `${availableVenues.length} disponibles` : 'Crea uno nuevo'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span className="text-sm font-medium">Añadir venue</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Ungrouped events (without venue) */}
