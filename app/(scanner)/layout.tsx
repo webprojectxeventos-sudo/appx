@@ -1,7 +1,7 @@
 'use client'
 
 import React, { ReactNode, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
@@ -9,8 +9,11 @@ import { ErrorBoundary } from '@/components/error-boundary'
 
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, profile, loading, initialized, isStaff, isAdmin, isGroupAdmin } = useAuth()
   const canGoBackToAdmin = isAdmin || isGroupAdmin
+  const isCloakroomPage = pathname.startsWith('/cloakroom')
+  const pageTitle = isCloakroomPage ? 'Ropero' : 'Scanner'
 
   useEffect(() => {
     if (!initialized) return
@@ -66,7 +69,7 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
             </button>
           )}
           <Image src="/logo.png" alt="Project X" width={28} height={28} className="rounded-lg" />
-          <h1 className="font-bold text-sm text-white">Scanner</h1>
+          <h1 className="font-bold text-sm text-white">{pageTitle}</h1>
         </div>
         <span className="text-xs text-white-muted">{profile.full_name}</span>
       </header>

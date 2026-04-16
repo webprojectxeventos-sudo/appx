@@ -44,14 +44,16 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; ic
   admin: { label: 'Admin', color: 'text-orange-400', bg: 'bg-orange-500/10', icon: Shield },
   group_admin: { label: 'Group Admin', color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Shield },
   scanner: { label: 'Scanner', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: ScanLine },
-  promoter: { label: 'Promotor', color: 'text-amber-400', bg: 'bg-amber-500/10', icon: Megaphone },
+  promoter: { label: 'Organizador', color: 'text-amber-400', bg: 'bg-amber-500/10', icon: Megaphone },
+  cloakroom: { label: 'Ropero', color: 'text-pink-400', bg: 'bg-pink-500/10', icon: User },
   attendee: { label: 'Asistente', color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: User },
 }
 
 const ROLE_OPTIONS = [
   { key: 'attendee', label: 'Asistente' },
   { key: 'scanner', label: 'Scanner' },
-  { key: 'promoter', label: 'Promotor' },
+  { key: 'promoter', label: 'Organizador' },
+  { key: 'cloakroom', label: 'Ropero' },
   { key: 'group_admin', label: 'Group Admin' },
   { key: 'admin', label: 'Admin' },
 ]

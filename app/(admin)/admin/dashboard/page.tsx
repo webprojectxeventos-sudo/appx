@@ -9,7 +9,7 @@ import {
   Users, MessageCircle, Ticket, BarChart3,
   AlertTriangle, Activity, Clock, Radio,
   Calendar, ScanLine, Megaphone, Building2, UsersRound,
-  GlassWater, UserPlus, ArrowRight, Zap,
+  GlassWater, UserPlus, ArrowRight, Zap, Shirt,
 } from 'lucide-react'
 import { cn, toLocalDateKey } from '@/lib/utils'
 import { DrinksBreakdown } from '@/components/admin/dashboard/drinks-breakdown'
@@ -30,7 +30,7 @@ interface GroupStats {
 
 interface LiveEntry {
   id: string
-  type: 'scan' | 'message' | 'incident'
+  type: 'scan' | 'message' | 'incident' | 'cloakroom'
   text: string
   group: string
   time: string
@@ -50,6 +50,7 @@ export default function DashboardPage() {
   const [recentUsers, setRecentUsers] = useState<{ id: string; full_name: string; email: string; created_at: string; event_title?: string }[]>([])
   const [totalMessages, setTotalMessages] = useState(0)
   const [totalDrinks, setTotalDrinks] = useState(0)
+  const [cloakroomStats, setCloakroomStats] = useState({ stored: 0, amount: 0 })
   const feedRef = useRef<HTMLDivElement>(null)
 
   // Fetch events — scoped by role
@@ -152,7 +153,9 @@ export default function DashboardPage() {
       supabase.from('messages').select('id', { count: 'exact', head: true }).in('event_id', eventIds),
       // Total drink orders
       supabase.from('drink_orders').select('id', { count: 'exact', head: true }).in('event_id', eventIds),
-    ]).then(([, regRes, msgRes, drinkRes]) => {
+      // Cloakroom stats
+      supabase.from('cloakroom_items').select('status, amount').in('event_id', eventIds),
+    ]).then(([, regRes, msgRes, drinkRes, cloakRes]) => {
       if (cancelled) return
       // Recent users
       const regs = (regRes.data || []).map((r: any) => ({
@@ -165,6 +168,11 @@ export default function DashboardPage() {
       setRecentUsers(regs)
       setTotalMessages(msgRes.count || 0)
       setTotalDrinks(drinkRes.count || 0)
+      // Cloakroom
+      const cloakItems = (cloakRes.data || []) as { status: string; amount: number }[]
+      const stored = cloakItems.filter(i => i.status === 'stored').length
+      const amount = cloakItems.reduce((sum, i) => sum + (i.amount || 0), 0)
+      setCloakroomStats({ stored, amount })
       setLoading(false)
     })
     return () => { cancelled = true }
@@ -219,10 +227,32 @@ export default function DashboardPage() {
       })
       .subscribe()
 
+    const cloakSub = supabase
+      .channel(`dash-cloakroom-${organization.id}-${selectedVenueId || 'all'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cloakroom_items' }, async payload => {
+        const item = payload.new as { event_id: string; user_id: string; status: string; ticket_number: number; amount: number }
+        if (!eventIds.includes(item.event_id)) return
+        const { data: userData } = await supabase.from('users').select('full_name').eq('id', item.user_id).single()
+        const ev = activeEvents.find(e => e.id === item.event_id)
+        const name = userData?.full_name || 'Asistente'
+        if (item.status === 'stored') {
+          addEntry({ type: 'cloakroom', text: `${name} → prenda #${item.ticket_number} (${item.amount}€)`, group: ev?.group_name || ev?.title || '' })
+        } else if (item.status === 'returned') {
+          addEntry({ type: 'cloakroom', text: `${name} ← prenda #${item.ticket_number} devuelta`, group: ev?.group_name || ev?.title || '' })
+        }
+        // Refresh cloakroom stats
+        supabase.from('cloakroom_items').select('status, amount').in('event_id', eventIds).then(({ data }) => {
+          const cItems = (data || []) as { status: string; amount: number }[]
+          setCloakroomStats({ stored: cItems.filter(i => i.status === 'stored').length, amount: cItems.reduce((s, i) => s + (i.amount || 0), 0) })
+        })
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(ticketSub)
       supabase.removeChannel(msgSub)
       supabase.removeChannel(incSub)
+      supabase.removeChannel(cloakSub)
     }
   }, [activeEvents.length, organization?.id, selectedVenueId])
 
@@ -235,6 +265,7 @@ export default function DashboardPage() {
     scan: { icon: Ticket, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     message: { icon: MessageCircle, color: 'text-blue-400', bg: 'bg-blue-500/10' },
     incident: { icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10' },
+    cloakroom: { icon: Shirt, color: 'text-pink-400', bg: 'bg-pink-500/10' },
   }
 
   if (!initialized) return <div className="space-y-6 animate-fade-in"><div className="h-8 w-48 bg-white/5 rounded-lg animate-pulse" /><div className="card h-24 animate-pulse" /></div>
@@ -375,6 +406,9 @@ export default function DashboardPage() {
             <StatCard icon={MessageCircle} label="Mensajes" value={totalMessages} color="text-blue-400" bg="bg-blue-500/10" />
             <StatCard icon={GlassWater} label="Bebidas" value={totalDrinks} color="text-amber-400" bg="bg-amber-500/10" />
             <StatCard icon={AlertTriangle} label="Incidencias" value={openIncidents} color={openIncidents > 0 ? 'text-red-400' : 'text-white-muted'} bg={openIncidents > 0 ? 'bg-red-500/10' : 'bg-white/5'} />
+            {cloakroomStats.stored > 0 && (
+              <StatCard icon={Shirt} label="Ropero" value={`${cloakroomStats.stored} · ${cloakroomStats.amount}€`} color="text-pink-400" bg="bg-pink-500/10" />
+            )}
           </div>
 
           {/* Drinks breakdown — per venue, for the selected date.

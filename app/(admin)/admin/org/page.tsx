@@ -110,7 +110,7 @@ export default function OrgPage() {
       })
       const data = await res.json()
       if (!res.ok) { showError(data.error || 'Error al crear usuario'); return }
-      const roleLabels: Record<string, string> = { scanner: 'Scanner', promoter: 'Promotor', admin: 'Admin', group_admin: 'Group Admin', super_admin: 'Super Admin' }
+      const roleLabels: Record<string, string> = { scanner: 'Scanner', promoter: 'Organizador', cloakroom: 'Ropero', admin: 'Admin', group_admin: 'Group Admin', super_admin: 'Super Admin' }
       success(`${roleLabels[newStaffRole] || newStaffRole} creado correctamente`)
       setNewEmail(''); setNewName(''); setNewPassword(''); setShowCreateStaff(false)
       fetchData()
@@ -263,7 +263,8 @@ export default function OrgPage() {
             <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
               {[
                 { value: 'scanner', label: 'Scanner', color: 'blue' },
-                { value: 'promoter', label: 'Promotor', color: 'amber' },
+                { value: 'promoter', label: 'Organizador', color: 'amber' },
+                { value: 'cloakroom', label: 'Ropero', color: 'pink' },
                 { value: 'admin', label: 'Admin', color: 'primary' },
                 { value: 'group_admin', label: 'Group Admin', color: 'violet' },
                 { value: 'super_admin', label: 'Super Admin', color: 'amber' },
@@ -313,8 +314,8 @@ export default function OrgPage() {
             const q = staffSearch.toLowerCase()
             return (m.full_name || '').toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
           }).map(member => {
-            const roleLabel: Record<string, string> = { super_admin: 'Super Admin', admin: 'Admin', group_admin: 'Group Admin', promoter: 'Promotor', scanner: 'Scanner' }
-            const roleColor = member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : member.role === 'group_admin' ? 'bg-violet-500/10 text-violet-400' : member.role === 'promoter' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'
+            const roleLabel: Record<string, string> = { super_admin: 'Super Admin', admin: 'Admin', group_admin: 'Group Admin', promoter: 'Organizador', cloakroom: 'Ropero', scanner: 'Scanner' }
+            const roleColor = member.role === 'super_admin' ? 'bg-amber-500/10 text-amber-400' : member.role === 'admin' ? 'bg-primary/10 text-primary' : member.role === 'group_admin' ? 'bg-violet-500/10 text-violet-400' : member.role === 'promoter' ? 'bg-amber-500/10 text-amber-400' : member.role === 'cloakroom' ? 'bg-pink-500/10 text-pink-400' : 'bg-blue-500/10 text-blue-400'
             const iconColor = member.role === 'super_admin' || member.role === 'admin' ? 'text-primary' : member.role === 'group_admin' ? 'text-violet-400' : 'text-blue-400'
             const isChangingPw = changingPasswordFor === member.id
 

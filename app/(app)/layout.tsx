@@ -18,6 +18,7 @@ import {
   Megaphone,
   Search,
   ScanLine,
+  Shirt,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { ThemeProvider, useTheme } from '@/lib/theme-context'
@@ -29,7 +30,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 
 function BottomNav() {
   const pathname = usePathname()
-  const { profile, isAdmin, isPromoter, isStaff, initialized, event } = useAuth()
+  const { profile, isAdmin, isPromoter, isScanner, isCloakroom, isStaff, initialized, event } = useAuth()
   const [hasSurveys, setHasSurveys] = useState(false)
 
   useEffect(() => {
@@ -57,26 +58,37 @@ function BottomNav() {
   const isActive = (path: string) =>
     pathname === path || pathname.startsWith(path + '/')
 
-  const navItems = [
-    { href: '/home', label: 'Home', icon: Home },
-    { href: '/gallery', label: 'Galeria', icon: ImageIcon },
-    { href: '/chat', label: 'Chat', icon: MessageCircle },
-    { href: '/polls', label: 'Bebidas', icon: GlassWater },
-    ...(hasSurveys ? [{ href: '/surveys', label: 'Encuestas', icon: BarChart3 }] : []),
-    { href: '/playlist', label: 'Playlist', icon: Music2 },
-    { href: '/lost-found', label: 'Perdidos', icon: Search },
-  ]
+  // Scanner-only staff: just Scanner link (they use the dedicated scanner layout)
+  // Cloakroom-only staff: just Ropero link
+  // Everyone else: full nav with conditional staff items
+  const navItems: { href: string; label: string; icon: typeof Home }[] = []
 
-  if (isStaff) {
+  if (isScanner) {
     navItems.push({ href: '/scanner', label: 'Scanner', icon: ScanLine })
-  }
+  } else if (isCloakroom) {
+    navItems.push({ href: '/cloakroom', label: 'Ropero', icon: Shirt })
+  } else {
+    navItems.push(
+      { href: '/home', label: 'Home', icon: Home },
+      { href: '/gallery', label: 'Galeria', icon: ImageIcon },
+      { href: '/chat', label: 'Chat', icon: MessageCircle },
+      { href: '/polls', label: 'Bebidas', icon: GlassWater },
+      ...(hasSurveys ? [{ href: '/surveys', label: 'Encuestas', icon: BarChart3 }] : []),
+      { href: '/playlist', label: 'Playlist', icon: Music2 },
+      { href: '/lost-found', label: 'Perdidos', icon: Search },
+    )
 
-  if (isPromoter || isAdmin) {
-    navItems.push({ href: '/promoter', label: 'Promotor', icon: Megaphone })
-  }
+    if (isStaff) {
+      navItems.push({ href: '/scanner', label: 'Scanner', icon: ScanLine })
+    }
 
-  if (isAdmin) {
-    navItems.push({ href: '/admin/dashboard', label: 'Admin', icon: Shield })
+    if (isPromoter || isAdmin) {
+      navItems.push({ href: '/promoter', label: 'Organizador', icon: Megaphone })
+    }
+
+    if (isAdmin) {
+      navItems.push({ href: '/admin/dashboard', label: 'Admin', icon: Shield })
+    }
   }
 
   return (
@@ -177,7 +189,7 @@ const FULL_SCREEN_PAGES = ['/chat']
 const ALLOWED_BEFORE_SURVEY = ['/polls', '/profile', '/promoter']
 
 function AppLayoutContent({ children }: { children: ReactNode }) {
-  const { loading, initialized, user, event, isStaff, isAdmin } = useAuth()
+  const { loading, initialized, user, event, isStaff, isAdmin, isScanner, isCloakroom } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [needsSurvey, setNeedsSurvey] = useState(false)
@@ -191,13 +203,30 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   }, [initialized, user, router])
 
   // Admin guard — admins should use the admin panel, not the attendee view.
-  // Exception: /profile is a user-level screen (edit name, password, avatar,
-  // delete account) that admins also need access to — don't redirect from it.
+  // Exceptions: /profile (edit name, avatar, delete account) and /promoter
+  // (promoter panel) are user-level screens admins also need access to.
   useEffect(() => {
-    if (initialized && !loading && isAdmin && pathname !== '/profile') {
+    const adminExempt = ['/profile', '/promoter']
+    if (initialized && !loading && isAdmin && !adminExempt.includes(pathname)) {
       router.replace('/admin/dashboard')
     }
   }, [initialized, loading, isAdmin, pathname, router])
+
+  // Scanner guard — scanner staff only see /scanner and /profile.
+  useEffect(() => {
+    const scannerExempt = ['/profile', '/scanner']
+    if (initialized && !loading && isScanner && !scannerExempt.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+      router.replace('/scanner')
+    }
+  }, [initialized, loading, isScanner, pathname, router])
+
+  // Cloakroom guard — cloakroom staff only see /cloakroom and /profile.
+  useEffect(() => {
+    const cloakroomExempt = ['/profile', '/cloakroom']
+    if (initialized && !loading && isCloakroom && !cloakroomExempt.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+      router.replace('/cloakroom')
+    }
+  }, [initialized, loading, isCloakroom, pathname, router])
 
   // Check if user has completed drink order — runs in background, does NOT block render
   useEffect(() => {

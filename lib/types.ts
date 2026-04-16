@@ -7,7 +7,7 @@ export type Database = {
           email: string
           full_name: string | null
           avatar_url: string | null
-          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id: string | null
           organization_id: string | null
           gender: 'masculino' | 'femenino' | 'otro' | null
@@ -18,7 +18,7 @@ export type Database = {
           email: string
           full_name?: string | null
           avatar_url?: string | null
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
@@ -29,7 +29,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           avatar_url?: string | null
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
@@ -435,7 +435,7 @@ export type Database = {
           id: string
           user_id: string
           event_id: string
-          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           is_active: boolean
           is_muted: boolean
           added_by: string | null
@@ -445,7 +445,7 @@ export type Database = {
           id?: string
           user_id: string
           event_id: string
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           is_active?: boolean
           is_muted?: boolean
           added_by?: string | null
@@ -455,11 +455,53 @@ export type Database = {
           id?: string
           user_id?: string
           event_id?: string
-          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter'
+          role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           is_active?: boolean
           is_muted?: boolean
           added_by?: string | null
           joined_at?: string
+        }
+        Relationships: []
+      }
+      cloakroom_items: {
+        Row: {
+          id: string
+          event_id: string
+          user_id: string
+          ticket_number: number
+          amount: number
+          status: 'stored' | 'returned'
+          checked_in_at: string
+          checked_in_by: string
+          checked_out_at: string | null
+          checked_out_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          event_id: string
+          user_id: string
+          ticket_number: number
+          amount?: number
+          status?: 'stored' | 'returned'
+          checked_in_at?: string
+          checked_in_by: string
+          checked_out_at?: string | null
+          checked_out_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          event_id?: string
+          user_id?: string
+          ticket_number?: number
+          amount?: number
+          status?: 'stored' | 'returned'
+          checked_in_at?: string
+          checked_in_by?: string
+          checked_out_at?: string | null
+          checked_out_by?: string | null
+          created_at?: string
         }
         Relationships: []
       }

@@ -166,7 +166,10 @@ function LoginContent() {
           disabled={loading}
         />
 
-        <div className="flex justify-end">
+        <div className="flex justify-between">
+          <Link href="/fix-email" className="text-xs text-white/40 hover:text-white/70 transition-colors">
+            Email equivocado?
+          </Link>
           <Link href="/forgot-password" className="text-xs text-white/40 hover:text-white/70 transition-colors">
             Olvidaste tu contraseña?
           </Link>

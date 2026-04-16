@@ -1,7 +1,7 @@
 // Project X — Service Worker for offline support
 // Caching strategy: Cache-first for static, Network-first for API, dedicated image cache
 
-const CACHE_VERSION = 'v3'
+const CACHE_VERSION = 'v4'
 const STATIC_CACHE = `projectx-static-${CACHE_VERSION}`
 const DATA_CACHE = `projectx-data-${CACHE_VERSION}`
 const IMAGE_CACHE = `projectx-images-${CACHE_VERSION}`
@@ -11,13 +11,10 @@ const IMAGE_CACHE_MAX = 150  // max cached images
 const DATA_CACHE_MAX = 100   // max cached API responses
 const DATA_CACHE_TTL = 24 * 60 * 60 * 1000 // 24h in ms
 
-// App shell — core assets to precache
+// Precache only static assets (icons, manifest).
+// HTML pages are NOT precached — they use network-first at runtime
+// so deploys are always picked up immediately.
 const PRECACHE_URLS = [
-  '/',
-  '/home',
-  '/gallery',
-  '/chat',
-  '/polls',
   '/favicon.png',
   '/logo.png',
   '/icon-192.png',

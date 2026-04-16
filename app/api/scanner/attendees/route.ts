@@ -9,10 +9,10 @@ import { getStaffProfile, getStaffEventIds } from '@/lib/scanner-access'
 // single source of truth for its event list and attendee stats.
 //
 // Access model lives in `lib/scanner-access.ts`:
-//   - scanner / group_admin / promoter → limited to their user_events
-//     memberships (explicit assignment to specific events)
-//   - admin / super_admin → all events in their organization within a
-//     rolling 48h window around "now", no user_events entry required
+//   - scanner / cloakroom → venue-wide: assigned to any event at a
+//     venue → sees ALL events at that venue (no date filter)
+//   - group_admin / promoter → limited to their explicit user_events
+//   - admin / super_admin → all events in their org (no date filter)
 
 export async function GET(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL

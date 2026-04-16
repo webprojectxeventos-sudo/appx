@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/toast'
-import { User, Camera, Check, ChevronLeft, Bell, BellOff, Lock, Trash2, AlertTriangle } from 'lucide-react'
+import { User, Camera, Check, ChevronLeft, Bell, BellOff, Lock, Trash2, AlertTriangle, Pencil, Mail, Loader2 } from 'lucide-react'
+import { authFetch } from '@/lib/auth-fetch'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
@@ -24,11 +25,18 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false)
   const [avatarLoadError, setAvatarLoadError] = useState(false)
 
+  // Email editing
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [emailValue, setEmailValue] = useState(profile?.email || '')
+  const [emailLoading, setEmailLoading] = useState(false)
+  const [emailSaved, setEmailSaved] = useState(false)
+
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '')
       setGender(profile.gender || '')
       setAvatarUrl(profile.avatar_url || '')
+      setEmailValue(profile.email || '')
     }
   }, [profile])
   const [saving, setSaving] = useState(false)
@@ -68,6 +76,43 @@ export default function ProfilePage() {
       showError('Error al subir la imagen')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleUpdateEmail = async () => {
+    if (!user) return
+    const trimmed = emailValue.trim().toLowerCase()
+    if (!trimmed || trimmed === profile?.email) {
+      setEditingEmail(false)
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmed)) {
+      showError('Formato de email invalido')
+      return
+    }
+    setEmailLoading(true)
+    try {
+      const res = await authFetch('/api/user/update-email', { email: trimmed })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al actualizar el email')
+        return
+      }
+      setEditingEmail(false)
+      setEmailSaved(true)
+      if (data.ticketSent) {
+        success('Email actualizado — entrada reenviada')
+      } else {
+        success('Email actualizado')
+      }
+      await refreshProfile()
+      setTimeout(() => setEmailSaved(false), 3000)
+    } catch (err) {
+      console.error('Email update error:', err)
+      showError('Error al actualizar el email')
+    } finally {
+      setEmailLoading(false)
     }
   }
 
@@ -248,7 +293,47 @@ export default function ProfilePage() {
           </label>
         </div>
         {uploading && <p className="text-xs text-white-muted">Subiendo...</p>}
-        <p className="text-xs text-white-muted">{profile?.email}</p>
+
+        {/* Editable email */}
+        {editingEmail ? (
+          <div className="flex items-center gap-2 w-full max-w-[300px]">
+            <input
+              type="email"
+              value={emailValue}
+              onChange={(e) => setEmailValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateEmail(); if (e.key === 'Escape') { setEditingEmail(false); setEmailValue(profile?.email || '') } }}
+              autoFocus
+              className="flex-1 px-3 py-1.5 rounded-lg border border-primary/40 bg-transparent text-white text-xs text-center focus:outline-none focus:border-primary transition-colors"
+              disabled={emailLoading}
+            />
+            <button
+              onClick={handleUpdateEmail}
+              disabled={emailLoading}
+              className="p-1.5 rounded-lg text-primary hover:bg-primary/10 transition-colors"
+            >
+              {emailLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => { setEditingEmail(false); setEmailValue(profile?.email || '') }}
+              disabled={emailLoading}
+              className="p-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 rotate-[270deg]" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditingEmail(true)}
+            className={cn(
+              'flex items-center gap-1.5 group transition-colors',
+              emailSaved ? 'text-emerald-400' : 'text-white-muted'
+            )}
+          >
+            <Mail className="w-3 h-3" />
+            <span className="text-xs">{emailSaved ? 'Email actualizado!' : profile?.email}</span>
+            {!emailSaved && <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
+          </button>
+        )}
       </div>
 
       {/* Name */}

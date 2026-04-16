@@ -104,8 +104,9 @@ export default function ScannerPage() {
   // Door registration state
   const [doorName, setDoorName] = useState('')
   const [doorEventId, setDoorEventId] = useState<string>('')
+  const [doorPromoterCode, setDoorPromoterCode] = useState('')
   const [doorLoading, setDoorLoading] = useState(false)
-  const [doorResult, setDoorResult] = useState<{ success: boolean; name?: string; error?: string } | null>(null)
+  const [doorResult, setDoorResult] = useState<{ success: boolean; name?: string; promoter?: string; error?: string } | null>(null)
 
   // Events + attendees (both come from /api/scanner/attendees, which
   // handles admin/super_admin org-wide access in addition to user_events
@@ -456,14 +457,19 @@ export default function ScannerPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ name: doorName.trim(), event_id: doorEventId }),
+        body: JSON.stringify({
+          name: doorName.trim(),
+          event_id: doorEventId,
+          ...(doorPromoterCode.replace(/-/g, '').length === 8 && { promoter_code: doorPromoterCode }),
+        }),
       })
       const data = await res.json()
       if (res.ok && data.success) {
         if (soundEnabled) playBeep(true)
         haptic(true)
-        setDoorResult({ success: true, name: data.user_name })
+        setDoorResult({ success: true, name: data.user_name, promoter: data.promoter_name })
         setDoorName('')
+        setDoorPromoterCode('')
         loadAttendees()
         // Auto-clear result
         setTimeout(() => setDoorResult(null), 3000)
@@ -837,6 +843,21 @@ export default function ScannerPage() {
               onKeyDown={e => { if (e.key === 'Enter' && doorName.trim()) registerDoor() }}
             />
 
+            {/* Promoter code (optional) */}
+            <div>
+              <label className="text-[11px] text-white-muted font-medium mb-1 block">Codigo organizador (opcional)</label>
+              <input
+                type="text"
+                value={doorPromoterCode}
+                onChange={e => {
+                  const clean = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+                  setDoorPromoterCode(clean.length > 4 ? clean.slice(0, 4) + '-' + clean.slice(4) : clean)
+                }}
+                placeholder="XXXX-XXXX"
+                className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm font-mono tracking-widest focus:outline-none focus:border-primary/40 transition-colors uppercase"
+              />
+            </div>
+
             {/* Event selector — grouped by calendar day so admins with 20+
                 concurrent events can pick quickly instead of scanning a long
                 horizontal strip. */}
@@ -912,7 +933,9 @@ export default function ScannerPage() {
                   {doorResult.success ? `${doorResult.name} registrado` : 'Error'}
                 </p>
                 <p className="text-[11px] text-white-muted">
-                  {doorResult.success ? 'Entrada en puerta confirmada' : doorResult.error}
+                  {doorResult.success
+                    ? (doorResult.promoter ? `Paga en puerta · Organizador: ${doorResult.promoter}` : 'Entrada en puerta confirmada')
+                    : doorResult.error}
                 </p>
               </div>
             </div>

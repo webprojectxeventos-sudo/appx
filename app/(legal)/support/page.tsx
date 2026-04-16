@@ -105,7 +105,7 @@ export default function SupportPage() {
             <p>
               Project X es la app oficial para asistentes de eventos de
               graduacion organizados con nuestro servicio. Las entradas se
-              compran a traves del colegio o el promotor del evento, no
+              compran a traves del colegio o el organizador del evento, no
               directamente desde la app. Una vez comprada, recibiras un codigo
               QR en tu perfil que sirve para entrar al recinto.
             </p>
@@ -162,7 +162,7 @@ export default function SupportPage() {
           <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2 text-white/60">
             <p>
               El escaner solo esta disponible para cuentas de staff autorizadas
-              (promotores, personal de puerta, admins).
+              (organizadores, personal de puerta, admins).
             </p>
             <p>
               Si eres staff y la camara no arranca, comprueba que has aceptado
@@ -183,7 +183,7 @@ export default function SupportPage() {
             <p>
               Para problemas especificos de un evento concreto (hora, lugar,
               bebida, lista de invitados, incidencias en la noche del evento),
-              tu organizador o promotor es el contacto directo. Si necesitas
+              tu organizador es el contacto directo. Si necesitas
               escalar a Project X, manda un correo a{' '}
               <a
                 href={`mailto:${SUPPORT_EMAIL}`}

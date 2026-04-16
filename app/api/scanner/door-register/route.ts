@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { canStaffEvent } from '@/lib/scanner-access'
 
+const DOOR_LIMIT_DEFAULT = 20
+
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -22,7 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Parse body
-  const { name, event_id } = await request.json()
+  const { name, event_id, promoter_code } = await request.json()
   if (!event_id) {
     return NextResponse.json({ error: 'event_id required' }, { status: 400 })
   }
@@ -37,7 +39,56 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No access to this event' }, { status: 403 })
   }
 
-  // Get event + org info for the user profile
+  // ── Promoter code validation ──────────────────────────────────────────
+  let promoterId: string | null = null
+  let promoterName: string | null = null
+
+  if (promoter_code) {
+    const cleanCode = String(promoter_code).replace(/-/g, '').toUpperCase()
+    if (cleanCode.length !== 8) {
+      return NextResponse.json({ error: 'Codigo organizador invalido (8 caracteres)' }, { status: 400 })
+    }
+
+    // Find the access code
+    const { data: codeRow } = await sb
+      .from('access_codes')
+      .select('id, used_by, event_id')
+      .eq('code', cleanCode)
+      .maybeSingle()
+
+    if (!codeRow || !codeRow.used_by) {
+      return NextResponse.json({ error: 'Codigo organizador no encontrado' }, { status: 404 })
+    }
+
+    // Verify the user is a promoter
+    const { data: promoterUser } = await sb
+      .from('users')
+      .select('id, role, full_name')
+      .eq('id', codeRow.used_by)
+      .single()
+
+    if (!promoterUser || promoterUser.role !== 'promoter') {
+      return NextResponse.json({ error: 'Este codigo no pertenece a un organizador' }, { status: 403 })
+    }
+
+    promoterId = promoterUser.id
+    promoterName = promoterUser.full_name
+
+    // Check door limit (20 per promoter per event)
+    const { count } = await sb
+      .from('user_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', event_id)
+      .eq('added_by', promoterId)
+
+    if ((count || 0) >= DOOR_LIMIT_DEFAULT) {
+      return NextResponse.json({
+        error: `Limite de entradas en puerta alcanzado (${DOOR_LIMIT_DEFAULT}) para este organizador`,
+      }, { status: 400 })
+    }
+  }
+
+  // ── Get event + org info ──────────────────────────────────────────────
   const { data: eventData } = await sb
     .from('events')
     .select('id, title, organization_id')
@@ -47,7 +98,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Event not found' }, { status: 404 })
   }
 
-  // Create an auth user for this door entry
+  // ── Create auth user for this door entry ──────────────────────────────
   const randomId = crypto.randomBytes(6).toString('hex')
   const fakeEmail = `door.${randomId}@puerta.local`
 
@@ -55,7 +106,7 @@ export async function POST(request: NextRequest) {
     email: fakeEmail,
     password: crypto.randomBytes(16).toString('hex'),
     email_confirm: true,
-    user_metadata: { source: 'door' },
+    user_metadata: { source: 'door', ...(promoterId && { promoter_id: promoterId }) },
   })
   if (authError || !authData.user) {
     return NextResponse.json({ error: authError?.message || 'Failed to create user' }, { status: 500 })
@@ -63,8 +114,7 @@ export async function POST(request: NextRequest) {
 
   const newUserId = authData.user.id
 
-  // Create profile in users table
-  // The auth trigger may auto-create a row, so upsert
+  // Create profile in users table (auth trigger may auto-create, so upsert)
   await sb.from('users').upsert({
     id: newUserId,
     email: fakeEmail,
@@ -73,6 +123,14 @@ export async function POST(request: NextRequest) {
     event_id,
     organization_id: eventData.organization_id,
   }, { onConflict: 'id' })
+
+  // Create user_events entry (for tracking added_by / promoter attribution)
+  await sb.from('user_events').upsert({
+    user_id: newUserId,
+    event_id,
+    role: 'attendee',
+    added_by: promoterId || user.id,
+  }, { onConflict: 'user_id,event_id' })
 
   // Create ticket — already marked as 'used' (they're at the door)
   const qrCode = `DOOR-${event_id.substring(0, 8)}-${crypto.randomBytes(12).toString('hex')}`
@@ -95,5 +153,6 @@ export async function POST(request: NextRequest) {
     ticket_id: ticket.id,
     user_name: name || 'Entrada puerta',
     event_title: eventData.title,
+    promoter_name: promoterName,
   })
 }

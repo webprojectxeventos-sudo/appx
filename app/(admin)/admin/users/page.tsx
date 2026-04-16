@@ -47,7 +47,8 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; bo
   admin: { label: 'Admin', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', icon: ShieldCheck },
   group_admin: { label: 'Group Admin', color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', icon: Shield },
   scanner: { label: 'Scanner', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', icon: ScanLine },
-  promoter: { label: 'Promotor', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: Megaphone },
+  promoter: { label: 'Organizador', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: Megaphone },
+  cloakroom: { label: 'Ropero', color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20', icon: User },
   attendee: { label: 'Asistente', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: User },
 }
 
@@ -57,7 +58,8 @@ const ROLE_OPTIONS = [
   { key: 'admin', label: 'Admin' },
   { key: 'group_admin', label: 'Group Admin' },
   { key: 'scanner', label: 'Scanner' },
-  { key: 'promoter', label: 'Promotor' },
+  { key: 'promoter', label: 'Organizador' },
+  { key: 'cloakroom', label: 'Ropero' },
   { key: 'attendee', label: 'Asistente' },
 ]
 
