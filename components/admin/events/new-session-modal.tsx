@@ -39,7 +39,7 @@ export function NewSessionModal({
   }
 
   const [date, setDate] = useState(getNextSaturday)
-  const [time, setTime] = useState('22:00')
+  const [time, setTime] = useState('00:00')
   const [eventType, setEventType] = useState<'fiesta' | 'eso'>('fiesta')
   const [selectedVenueIds, setSelectedVenueIds] = useState<Set<string>>(new Set())
 

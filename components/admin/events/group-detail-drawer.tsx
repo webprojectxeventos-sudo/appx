@@ -45,7 +45,7 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
 
   // Time editing
   const [editingTime, setEditingTime] = useState(false)
-  const [timeValue, setTimeValue] = useState('22:00')
+  const [timeValue, setTimeValue] = useState('00:00')
   const [timeSaved, setTimeSaved] = useState(false)
 
   // Date editing

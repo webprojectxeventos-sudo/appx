@@ -40,7 +40,7 @@ export function QuickAddInput({ venueId, date, eventType, organizationId, userId
     const { data: inserted, error } = await supabase.from('events').insert({
       title: name,
       group_name: name,
-      date: new Date(date.includes('T') ? date : `${date}T22:00:00`).toISOString(),
+      date: new Date(date.includes('T') ? date : `${date}T00:00:00`).toISOString(),
       venue_id: venueId,
       event_type: eventType,
       event_code: generateEventCode(),
