@@ -189,7 +189,9 @@ export default function ScannerPage() {
       })
   }, [serverEvents])
 
-  const multipleEvents = eventIds.length > 1
+  // Always show event selector if there are events — even with 1 event,
+  // admins need to see WHICH event is active. Previously gated by > 1.
+  const multipleEvents = eventIds.length > 0
 
   // Keep refs in sync
   useEffect(() => { attendeesRef.current = attendees }, [attendees])

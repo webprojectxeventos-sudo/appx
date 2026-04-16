@@ -18,10 +18,12 @@ import { SupabaseClient } from '@supabase/supabase-js'
 
 export const STAFF_ROLES = ['scanner', 'admin', 'super_admin', 'group_admin', 'promoter'] as const
 
-// Window for org-wide admin access. Opening the scanner shouldn't pull
-// months of history, only events around "tonight".
-const ORG_WINDOW_PAST_MS = 12 * 3600 * 1000   // 12h ago
-const ORG_WINDOW_FUTURE_MS = 36 * 3600 * 1000 // 36h ahead
+// Window for org-wide admin access. The previous 48h window (-12h/+36h)
+// was too tight — admins opening the scanner a day or two before the event
+// (to test, configure, or set up) couldn't see anything. Widened to 7 days
+// past and 30 days future so admins always have access to upcoming events.
+const ORG_WINDOW_PAST_MS = 7 * 24 * 3600 * 1000    // 7 days ago
+const ORG_WINDOW_FUTURE_MS = 30 * 24 * 3600 * 1000  // 30 days ahead
 
 export type StaffProfile = {
   role: string

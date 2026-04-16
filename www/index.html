@@ -14,43 +14,20 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
+      min-height: 100dvh;
       font-family: -apple-system, system-ui, sans-serif;
     }
-    .loader {
-      text-align: center;
-    }
-    .loader img {
-      width: 64px;
-      height: 64px;
-      border-radius: 16px;
-      margin-bottom: 16px;
-    }
-    .dots {
-      display: flex;
-      gap: 6px;
-      justify-content: center;
-    }
-    .dots span {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: white;
-      animation: pulse 1.4s ease-in-out infinite;
-    }
-    .dots span:nth-child(2) { animation-delay: 0.2s; }
-    .dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes pulse {
-      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-      40% { opacity: 1; transform: scale(1); }
+    .wordmark {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      color: #737373;
+      user-select: none;
+      -webkit-user-select: none;
     }
   </style>
 </head>
 <body>
-  <div class="loader">
-    <img src="logo.png" alt="Project X" />
-    <div class="dots">
-      <span></span><span></span><span></span>
-    </div>
-  </div>
+  <div class="wordmark">PROJECT X</div>
 </body>
 </html>
