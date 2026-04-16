@@ -29,7 +29,7 @@ export default function OrgPage() {
   const [loading, setLoading] = useState(true)
   const [showVenueForm, setShowVenueForm] = useState(false)
   const [editingVenue, setEditingVenue] = useState<Venue | null>(null)
-  const [venueForm, setVenueForm] = useState({ name: '', address: '', city: '', capacity: '', image_url: '' })
+  const [venueForm, setVenueForm] = useState({ name: '', address: '', city: '', capacity: '', image_url: '', latitude: '', longitude: '' })
 
   // Staff
   const [staff, setStaff] = useState<StaffMember[]>([])
@@ -73,6 +73,8 @@ export default function OrgPage() {
       city: venueForm.city || null,
       capacity: venueForm.capacity ? parseInt(venueForm.capacity) : null,
       image_url: venueForm.image_url || null,
+      latitude: venueForm.latitude ? parseFloat(venueForm.latitude) : null,
+      longitude: venueForm.longitude ? parseFloat(venueForm.longitude) : null,
       organization_id: organization.id,
     }
     if (editingVenue) {
@@ -93,7 +95,7 @@ export default function OrgPage() {
   const resetVenueForm = () => {
     setShowVenueForm(false)
     setEditingVenue(null)
-    setVenueForm({ name: '', address: '', city: '', capacity: '', image_url: '' })
+    setVenueForm({ name: '', address: '', city: '', capacity: '', image_url: '', latitude: '', longitude: '' })
   }
 
   // Staff — uses /api/admin/create-user (admin.createUser, no confirmation email)
@@ -200,6 +202,15 @@ export default function OrgPage() {
               <input type="text" placeholder="Ciudad" value={venueForm.city} onChange={e => setVenueForm({ ...venueForm, city: e.target.value })} className={inputClass} />
             </div>
             <input type="number" placeholder="Capacidad" value={venueForm.capacity} onChange={e => setVenueForm({ ...venueForm, capacity: e.target.value })} className={inputClass} />
+            {/* GPS coordinates */}
+            <div>
+              <label className="text-xs text-white-muted flex items-center gap-1.5 mb-1.5"><MapPin className="w-3.5 h-3.5" /> Coordenadas GPS <span className="text-white-muted/50">(para mapa y tiempo)</span></label>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="text" inputMode="decimal" placeholder="Latitud (ej: 40.4168)" value={venueForm.latitude} onChange={e => setVenueForm({ ...venueForm, latitude: e.target.value })} className={inputClass} />
+                <input type="text" inputMode="decimal" placeholder="Longitud (ej: -3.7038)" value={venueForm.longitude} onChange={e => setVenueForm({ ...venueForm, longitude: e.target.value })} className={inputClass} />
+              </div>
+              <p className="text-[10px] text-white-muted/60 mt-1">Busca el local en <a href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary underline">Google Maps</a>, haz click derecho en el punto y copia las coordenadas.</p>
+            </div>
             <div className="flex gap-2 justify-end">
               <button onClick={resetVenueForm} className="btn-ghost text-sm">Cancelar</button>
               <button onClick={handleSaveVenue} className="btn-primary text-sm"><Save className="w-4 h-4" /> Guardar</button>
@@ -234,8 +245,10 @@ export default function OrgPage() {
                   </>
                 )}
                 {v.image_url && <div className="flex-1" />}
+                {v.latitude && v.longitude && <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full" title={`${v.latitude}, ${v.longitude}`}>📍 GPS</span>}
+                {(!v.latitude || !v.longitude) && <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-1 rounded-full">⚠ Sin GPS</span>}
                 {v.capacity && <span className="text-[10px] text-white-muted bg-white/5 px-2 py-1 rounded-full">{v.capacity} cap.</span>}
-                <button onClick={() => { setEditingVenue(v); setVenueForm({ name: v.name, address: v.address || '', city: v.city || '', capacity: v.capacity?.toString() || '', image_url: v.image_url || '' }); setShowVenueForm(true) }} className="p-1.5 rounded-lg hover:bg-white/5"><Pencil className="w-3.5 h-3.5 text-white-muted" /></button>
+                <button onClick={() => { setEditingVenue(v); setVenueForm({ name: v.name, address: v.address || '', city: v.city || '', capacity: v.capacity?.toString() || '', image_url: v.image_url || '', latitude: v.latitude?.toString() || '', longitude: v.longitude?.toString() || '' }); setShowVenueForm(true) }} className="p-1.5 rounded-lg hover:bg-white/5"><Pencil className="w-3.5 h-3.5 text-white-muted" /></button>
                 <button onClick={() => handleDeleteVenue(v.id)} className="p-1.5 rounded-lg hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
               </div>
             </div>
