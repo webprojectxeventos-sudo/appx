@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
@@ -82,6 +83,45 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
   // Delete confirm
   const [confirmAction, setConfirmAction] = useState<{ userId: string; mode: 'remove' | 'delete' } | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Actions dropdown (click-based, not hover)
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
+
+  // Close dropdown on click outside or scroll
+  useEffect(() => {
+    if (!openDropdownId) return
+    const close = () => setOpenDropdownId(null)
+    const onScroll = () => setOpenDropdownId(null)
+    document.addEventListener('mousedown', (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) close()
+    })
+    // Close on scroll of any parent (the drawer's scroll container)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [openDropdownId])
+
+  const toggleDropdown = (userId: string, e: React.MouseEvent) => {
+    if (openDropdownId === userId) {
+      setOpenDropdownId(null)
+      return
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    // Position dropdown below the button, aligned to right edge
+    const top = rect.bottom + 4
+    const left = rect.right - 180 // min-w-[180px]
+    // If dropdown would go below viewport, show above
+    const spaceBelow = window.innerHeight - rect.bottom
+    setDropdownPos({
+      top: spaceBelow < 260 ? rect.top - 4 : top,
+      left: Math.max(8, left),
+    })
+    setOpenDropdownId(userId)
+  }
 
   // Add user modal
   const [showAddUser, setShowAddUser] = useState(false)
@@ -471,59 +511,18 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
                     </span>
                   </div>
 
-                  {/* Actions dropdown */}
-                  <div className="relative group shrink-0">
-                    <button className="p-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors">
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] py-1 rounded-xl border border-black-border bg-black-card shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                      <button
-                        onClick={() => startEdit(a)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white hover:bg-white/5 transition-colors"
-                      >
-                        <Pencil className="w-3 h-3" />
-                        Editar email / nombre
-                      </button>
-
-                      {/* Role submenu */}
-                      <div className="px-3 py-2 border-t border-black-border">
-                        <span className="text-[10px] text-white-muted block mb-1.5">Rol en este evento</span>
-                        <div className="flex flex-wrap gap-1">
-                          {ROLE_OPTIONS.map(r => (
-                            <button
-                              key={r.key}
-                              onClick={() => handleChangeEventRole(a.user.id, r.key)}
-                              className={cn(
-                                'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
-                                a.membership.role === r.key
-                                  ? 'bg-primary/20 text-primary'
-                                  : 'text-white-muted hover:text-white hover:bg-white/5'
-                              )}
-                            >
-                              {r.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="border-t border-black-border">
-                        <button
-                          onClick={() => setConfirmAction({ userId: a.user.id, mode: 'remove' })}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-amber-400 hover:bg-amber-500/5 transition-colors"
-                        >
-                          <UserMinus className="w-3 h-3" />
-                          Quitar del evento
-                        </button>
-                        <button
-                          onClick={() => setConfirmAction({ userId: a.user.id, mode: 'delete' })}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/5 transition-colors"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Eliminar usuario
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  {/* Actions dropdown trigger */}
+                  <button
+                    onClick={(e) => toggleDropdown(a.user.id, e)}
+                    className={cn(
+                      'p-1.5 rounded-lg transition-colors shrink-0',
+                      openDropdownId === a.user.id
+                        ? 'text-white bg-white/10'
+                        : 'text-white-muted hover:text-white hover:bg-white/5'
+                    )}
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 {/* Edit inline form */}
@@ -572,6 +571,77 @@ export function AttendeesTab({ eventId }: AttendeesTabProps) {
           })
         )}
       </div>
+
+      {/* Actions dropdown — portalled to document.body to escape overflow:hidden */}
+      {openDropdownId && dropdownPos && (() => {
+        const a = attendees.find(at => at.user.id === openDropdownId)
+        if (!a) return null
+        const spaceBelow = window.innerHeight - dropdownPos.top
+        const showAbove = spaceBelow < 260
+        return createPortal(
+          <>
+            {/* Invisible overlay to close on click outside */}
+            <div className="fixed inset-0 z-[100]" onClick={() => setOpenDropdownId(null)} />
+            <div
+              ref={dropdownRef}
+              className="fixed z-[101] min-w-[180px] py-1 rounded-xl border border-black-border bg-black-card shadow-2xl animate-fade-in"
+              style={{
+                ...(showAbove
+                  ? { bottom: window.innerHeight - dropdownPos.top, left: dropdownPos.left }
+                  : { top: dropdownPos.top, left: dropdownPos.left }
+                ),
+              }}
+            >
+              <button
+                onClick={() => { startEdit(a); setOpenDropdownId(null) }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white hover:bg-white/5 transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+                Editar email / nombre
+              </button>
+
+              {/* Role submenu */}
+              <div className="px-3 py-2 border-t border-black-border">
+                <span className="text-[10px] text-white-muted block mb-1.5">Rol en este evento</span>
+                <div className="flex flex-wrap gap-1">
+                  {ROLE_OPTIONS.map(r => (
+                    <button
+                      key={r.key}
+                      onClick={() => { handleChangeEventRole(a.user.id, r.key); setOpenDropdownId(null) }}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
+                        a.membership.role === r.key
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-white-muted hover:text-white hover:bg-white/5'
+                      )}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-black-border">
+                <button
+                  onClick={() => { setConfirmAction({ userId: a.user.id, mode: 'remove' }); setOpenDropdownId(null) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-amber-400 hover:bg-amber-500/5 transition-colors"
+                >
+                  <UserMinus className="w-3 h-3" />
+                  Quitar del evento
+                </button>
+                <button
+                  onClick={() => { setConfirmAction({ userId: a.user.id, mode: 'delete' }); setOpenDropdownId(null) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/5 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Eliminar usuario
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
+        )
+      })()}
 
       {/* Pagination */}
       {totalPages > 1 && (
