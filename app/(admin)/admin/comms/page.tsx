@@ -69,15 +69,20 @@ export default function CommsPage() {
   const userCacheRef = useRef<Record<string, { name: string; avatar: string | null }>>({})
   const modTotalPages = Math.ceil(modTotal / PAGE_SIZE)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchEventsVersion = useRef(0)
+
   // Fetch events — scoped by role
   const { events: userEvents } = useAuth()
   useEffect(() => {
     if (!user) return
+    const version = ++fetchEventsVersion.current
     const fetchEv = async () => {
       if (isGroupAdmin && userEvents.length > 0) {
         const sorted = userEvents.map(m => m.event).sort((a, b) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
         )
+        if (fetchEventsVersion.current !== version) return
         setAllEvents(sorted)
         return
       }
@@ -89,6 +94,7 @@ export default function CommsPage() {
         query = query.eq('created_by', user.id)
       }
       const { data } = await query
+      if (fetchEventsVersion.current !== version) return
       setAllEvents(data || [])
     }
     fetchEv()

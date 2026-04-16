@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
@@ -41,9 +41,13 @@ export default function EventsPage() {
   // Drawer for group detail
   const [drawerEvent, setDrawerEvent] = useState<Event | null>(null)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchVersion = useRef(0)
+
   // Fetch all data
   const fetchData = useCallback(async () => {
     if (!user) return
+    const version = ++fetchVersion.current
     setLoading(true)
     try {
       let evQuery = supabase.from('events').select('*').order('date', { ascending: true })
@@ -60,12 +64,15 @@ export default function EventsPage() {
       }
       const { data: vnData } = await vnQuery
 
+      // Ignore stale responses — a newer fetchData already started
+      if (fetchVersion.current !== version) return
+
       setAllEvents(evData || [])
       setAllVenues(vnData || [])
     } catch (err) {
       console.error('Error fetching data:', err)
     } finally {
-      setLoading(false)
+      if (fetchVersion.current === version) setLoading(false)
     }
   }, [user?.id, organization?.id, isSuperAdmin])
 

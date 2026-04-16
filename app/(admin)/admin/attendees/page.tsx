@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
@@ -54,7 +54,11 @@ export default function AttendeesPage() {
   // Ban modal state
   const [banTarget, setBanTarget] = useState<{ userId: string; userName: string; eventIds: string[] } | null>(null)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchVersion = useRef(0)
+
   const fetchData = useCallback(async () => {
+    const version = ++fetchVersion.current
     const eventIds = events.map(e => e.id)
     if (eventIds.length === 0) { setAttendees([]); setLoading(false); return }
 
@@ -66,6 +70,8 @@ export default function AttendeesPage() {
         .in('event_id', eventIds)
         .eq('role', 'attendee')
 
+      if (fetchVersion.current !== version) return
+
       if (!ueData || ueData.length === 0) { setAttendees([]); setLoading(false); return }
 
       const userIds = [...new Set(ueData.map(ue => ue.user_id))]
@@ -76,6 +82,9 @@ export default function AttendeesPage() {
         supabase.from('chat_bans').select('*').in('event_id', eventIds).eq('is_active', true),
         supabase.from('tickets').select('user_id, event_id, scanned_at').in('event_id', eventIds).not('scanned_at', 'is', null),
       ])
+
+      // Ignore stale responses — a newer fetchData already started
+      if (fetchVersion.current !== version) return
 
       const usersMap = new Map<string, { full_name: string | null; email: string; avatar_url: string | null; gender: string | null }>()
       usersRes.data?.forEach(u => usersMap.set(u.id, u))
@@ -123,9 +132,9 @@ export default function AttendeesPage() {
       setAttendees(rows)
     } catch (err) {
       console.error('Error fetching attendees:', err)
-      showError('Error cargando asistentes')
+      if (fetchVersion.current === version) showError('Error cargando asistentes')
     } finally {
-      setLoading(false)
+      if (fetchVersion.current === version) setLoading(false)
     }
   }, [events, showError])
 

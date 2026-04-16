@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useAdminSelection } from '@/lib/admin-context'
 import { supabase } from '@/lib/supabase'
@@ -58,8 +58,12 @@ export default function IncidentsPage() {
   })
   const [creating, setCreating] = useState(false)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchVersion = useRef(0)
+
   const fetchData = useCallback(async () => {
     if (!organization?.id) return
+    const version = ++fetchVersion.current
 
     const eventIds = events.map(e => e.id)
     if (eventIds.length === 0) { setIncidents([]); setLoading(false); return }
@@ -70,12 +74,18 @@ export default function IncidentsPage() {
       .in('event_id', eventIds)
       .order('created_at', { ascending: false })
 
+    // Ignore stale responses — a newer fetchData already started
+    if (fetchVersion.current !== version) return
+
     if (incData) {
       const reporterIds = [...new Set(incData.map(i => i.reported_by))]
       const { data: reporters } = await supabase
         .from('users')
         .select('id, full_name')
         .in('id', reporterIds)
+
+      // Re-check after second async call
+      if (fetchVersion.current !== version) return
 
       const reporterMap: Record<string, string> = {}
       reporters?.forEach(r => { reporterMap[r.id] = r.full_name || 'Desconocido' })
@@ -91,7 +101,7 @@ export default function IncidentsPage() {
       }))
       setIncidents(enriched)
     }
-    setLoading(false)
+    if (fetchVersion.current === version) setLoading(false)
   }, [organization?.id, events])
 
   useEffect(() => {

@@ -53,15 +53,20 @@ export default function DashboardPage() {
   const [cloakroomStats, setCloakroomStats] = useState({ stored: 0, amount: 0 })
   const feedRef = useRef<HTMLDivElement>(null)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchEventsVersion = useRef(0)
+
   // Fetch events — scoped by role
   useEffect(() => {
     if (!user) return
+    const version = ++fetchEventsVersion.current
     const fetchEvents = async () => {
       if (isGroupAdmin && userEvents.length > 0) {
         // group_admin: use their assigned events from auth context
         const sorted = userEvents.map(m => m.event).sort((a, b) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
         )
+        if (fetchEventsVersion.current !== version) return
         setAllEvents(sorted)
         return
       }
@@ -73,6 +78,7 @@ export default function DashboardPage() {
         query = query.eq('created_by', user.id)
       }
       const { data } = await query
+      if (fetchEventsVersion.current !== version) return
       setAllEvents(data || [])
     }
     fetchEvents()
