@@ -129,67 +129,50 @@ export async function canStaffEvent(
   userId: string,
   eventId: string,
 ): Promise<boolean> {
+  const ids = await getStaffEventIdsCached(admin, userId)
+  return ids.has(eventId)
+}
+
+// ── Per-request / short-TTL cache for accessible event IDs ─────────────────
+//
+// The scan / undo / door-register endpoints are hot paths — a scanner on a
+// busy door can hit them tens of times per minute. Resolving the caller's
+// accessible event set on every call means 2-5 extra DB round-trips per
+// scan. We cache the result in process memory for a short TTL (default 30s)
+// so subsequent scans in the same session reuse it. Each Next.js instance
+// has its own cache; staleness is bounded by the TTL so role revocations
+// still take effect within 30s.
+
+interface CacheEntry {
+  ids: Set<string>
+  expiresAt: number
+}
+
+const eventIdCache = new Map<string, CacheEntry>()
+const CACHE_TTL_MS = 30_000
+
+export async function getStaffEventIdsCached(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<Set<string>> {
+  const now = Date.now()
+  const hit = eventIdCache.get(userId)
+  if (hit && hit.expiresAt > now) return hit.ids
+
   const profile = await getStaffProfile(admin, userId)
-  if (!profile) return false
-
-  // 1) user_events membership
-  const { data: membership } = await admin
-    .from('user_events')
-    .select('role')
-    .eq('user_id', userId)
-    .eq('event_id', eventId)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (membership && STAFF_ROLES.includes(membership.role as typeof STAFF_ROLES[number])) {
-    return true
+  if (!profile) {
+    eventIdCache.set(userId, {
+      ids: new Set(),
+      expiresAt: now + CACHE_TTL_MS,
+    })
+    return new Set()
   }
+  const ids = await getStaffEventIds(admin, userId, profile)
+  eventIdCache.set(userId, { ids, expiresAt: now + CACHE_TTL_MS })
+  return ids
+}
 
-  // 2) Venue-wide access for scanner / cloakroom:
-  //    If the scanner has ANY event at the same venue, allow access.
-  if (VENUE_WIDE_ROLES.includes(profile.role)) {
-    // Get the venue of the target event
-    const { data: targetEvent } = await admin
-      .from('events')
-      .select('venue_id')
-      .eq('id', eventId)
-      .maybeSingle()
-
-    if (targetEvent?.venue_id) {
-      // Check if scanner has any user_events membership at this venue
-      const { data: venueEvents } = await admin
-        .from('events')
-        .select('id')
-        .eq('venue_id', targetEvent.venue_id)
-
-      if (venueEvents) {
-        const venueEventIds = venueEvents.map(e => e.id)
-        const { data: venueMembership } = await admin
-          .from('user_events')
-          .select('role')
-          .eq('user_id', userId)
-          .eq('is_active', true)
-          .in('event_id', venueEventIds)
-          .limit(1)
-          .maybeSingle()
-
-        if (venueMembership && STAFF_ROLES.includes(venueMembership.role as typeof STAFF_ROLES[number])) {
-          return true
-        }
-      }
-    }
-  }
-
-  // 3) Role-based org access (admin / super_admin can staff any event in their org)
-  if (profile.role === 'admin' || profile.role === 'super_admin') {
-    if (!profile.organization_id) return false
-    const { data: event } = await admin
-      .from('events')
-      .select('organization_id')
-      .eq('id', eventId)
-      .maybeSingle()
-    return !!event && event.organization_id === profile.organization_id
-  }
-
-  return false
+/** Invalidate the cache entry for a specific user (used after role changes). */
+export function invalidateStaffEventIdsCache(userId: string) {
+  eventIdCache.delete(userId)
 }

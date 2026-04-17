@@ -15,6 +15,11 @@ import { canStaffEvent } from '@/lib/scanner-access'
 // service role to update the ticket atomically. Returns the same JSON
 // shape as the RPC so the scanner page doesn't need to care which path
 // was used.
+//
+// Hot-path optimization: we fetch ticket + user info + event title in a
+// single joined query, and canStaffEvent is backed by a 30s access cache,
+// so a typical scan in a busy session costs just 2 DB round-trips (the
+// joined select and the update).
 
 type ScanResponse = {
   success: boolean
@@ -24,6 +29,16 @@ type ScanResponse = {
   event_title?: string
   ticket_id?: string
   scanned_at?: string
+}
+
+type JoinedTicket = {
+  id: string
+  user_id: string
+  event_id: string
+  status: 'valid' | 'used' | 'cancelled'
+  scanned_at: string | null
+  user: { full_name: string | null; email: string } | null
+  event: { title: string } | null
 }
 
 export async function POST(request: NextRequest) {
@@ -60,12 +75,19 @@ export async function POST(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  // Find the ticket
+  // Fetch ticket + joined user/event info in a single query. Using inner
+  // joins so rows with broken FKs don't silently pass.
   const { data: ticket, error: ticketErr } = await sb
     .from('tickets')
-    .select('id, user_id, event_id, status, scanned_at')
+    .select(
+      `
+      id, user_id, event_id, status, scanned_at,
+      user:users!inner(full_name, email),
+      event:events!inner(title)
+      `,
+    )
     .eq('qr_code', ticketQr)
-    .maybeSingle()
+    .maybeSingle<JoinedTicket>()
 
   if (ticketErr) {
     return NextResponse.json({ error: ticketErr.message }, { status: 500 })
@@ -75,7 +97,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(res)
   }
 
-  // Verify caller can staff this event
+  // Verify caller can staff this event (cached — cheap after first call per user)
   const allowed = await canStaffEvent(sb, user.id, ticket.event_id)
   if (!allowed) {
     return NextResponse.json({ error: 'No tienes permiso para escanear este ticket' }, { status: 403 })
@@ -87,6 +109,9 @@ export async function POST(request: NextRequest) {
     const res: ScanResponse = {
       success: false,
       error: 'Ticket ya escaneado',
+      user_name: ticket.user?.full_name ?? undefined,
+      user_email: ticket.user?.email ?? undefined,
+      event_title: ticket.event?.title ?? undefined,
       scanned_at: ticket.scanned_at || undefined,
     }
     return NextResponse.json(res)
@@ -107,18 +132,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 })
   }
 
-  // Lookup user + event info for the response (best-effort; failure here
-  // is not fatal — the ticket is already marked used)
-  const [{ data: ticketUser }, { data: event }] = await Promise.all([
-    sb.from('users').select('full_name, email').eq('id', ticket.user_id).maybeSingle(),
-    sb.from('events').select('title').eq('id', ticket.event_id).maybeSingle(),
-  ])
-
   const res: ScanResponse = {
     success: true,
-    user_name: ticketUser?.full_name ?? undefined,
-    user_email: ticketUser?.email ?? undefined,
-    event_title: event?.title ?? undefined,
+    user_name: ticket.user?.full_name ?? undefined,
+    user_email: ticket.user?.email ?? undefined,
+    event_title: ticket.event?.title ?? undefined,
     ticket_id: ticket.id,
     scanned_at: scannedAt,
   }
