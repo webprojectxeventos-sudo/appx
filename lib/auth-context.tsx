@@ -206,8 +206,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        // No timeout — Supabase cold start can take 10-15s on free tier
-        const { data: { session } } = await supabase.auth.getSession()
+        // Timeout of 8s — if getSession() hangs (e.g. expired token + unreachable refresh endpoint),
+        // fall through to "no session" and let the user re-login. Without this the app hangs on the
+        // splash screen forever. Cold starts are usually 1-3s on Supabase free tier; 8s is a wide margin.
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
+          setTimeout(() => {
+            console.warn('[Auth] getSession() timed out after 8s — treating as no session')
+            // Proactively clear any stale auth tokens so the next boot is clean
+            try {
+              Object.keys(localStorage)
+                .filter((k) => k.startsWith('sb-'))
+                .forEach((k) => localStorage.removeItem(k))
+            } catch {
+              /* ignore */
+            }
+            resolve({ data: { session: null } })
+          }, 8000)
+        )
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise])
 
         if (cancelled) return
 
