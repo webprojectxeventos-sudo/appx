@@ -19,7 +19,15 @@ export async function GET(request: NextRequest) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !anonKey || !serviceKey) {
-    return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+    const missing = [
+      !url && 'NEXT_PUBLIC_SUPABASE_URL',
+      !anonKey && 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+      !serviceKey && 'SUPABASE_SERVICE_ROLE_KEY',
+    ].filter(Boolean)
+    return NextResponse.json(
+      { error: `Server misconfigured: missing ${missing.join(', ')}` },
+      { status: 500 },
+    )
   }
 
   // Verify caller identity via their JWT
