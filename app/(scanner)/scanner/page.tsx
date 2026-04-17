@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
-import { QrCode, DoorOpen, Users, Layers } from 'lucide-react'
+import { useState } from 'react'
+import { QrCode, DoorOpen, Users } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { ScannerProvider, useScanner } from '@/components/scanner/scanner-provider'
@@ -9,129 +9,19 @@ import { StatsBar } from '@/components/scanner/stats-bar'
 import { ScanTab } from '@/components/scanner/scan-tab'
 import { DoorTab } from '@/components/scanner/door-tab'
 import { ListTab } from '@/components/scanner/list-tab'
-import type { ScannerEvent } from '@/components/scanner/scanner-types'
+import { EventHero } from '@/components/scanner/event-hero'
+import { EventSwitcherSheet } from '@/components/scanner/event-switcher-sheet'
 
 // ── Inner component (needs scanner context) ─────────────────────────────────
-
-// ── Event scope selector ────────────────────────────────────────────────────
-// Horizontal pill rail. "Todos" shows everything at the venue. Each event pill
-// switches the scanner (stats, list, door recent entries) to that event only.
-
-function EventScopeSelector() {
-  const { serverEvents, selectedEventId, setSelectedEventId, attendees } = useScanner()
-  const activePillRef = useRef<HTMLButtonElement>(null)
-
-  // Per-event quick stats for the pill subtitle: total / inside. Memoized so
-  // we don't re-iterate attendees on every render (cheap for 300, cumulative
-  // with parent renders for 1000+).
-  const perEventCounts = useMemo(() => {
-    const totals: Record<string, { total: number; inside: number }> = {}
-    for (const a of attendees) {
-      const t = totals[a.event_id] || { total: 0, inside: 0 }
-      t.total++
-      if (a.status === 'used') t.inside++
-      totals[a.event_id] = t
-    }
-    return totals
-  }, [attendees])
-
-  const { totalAcrossAll, insideAcrossAll } = useMemo(() => {
-    let inside = 0
-    for (const a of attendees) if (a.status === 'used') inside++
-    return { totalAcrossAll: attendees.length, insideAcrossAll: inside }
-  }, [attendees])
-
-  const sorted = useMemo<ScannerEvent[]>(
-    () => [...serverEvents].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-    [serverEvents],
-  )
-
-  // When the selected event changes, smoothly scroll its pill into view so the
-  // user always sees what scope they're in even when the rail overflows.
-  useEffect(() => {
-    activePillRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      inline: 'center',
-      block: 'nearest',
-    })
-  }, [selectedEventId])
-
-  // If only one event, hide the selector — nothing to switch between
-  if (serverEvents.length <= 1) return null
-
-  return (
-    <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
-      <div className="flex gap-2 pb-1 min-w-min">
-        {/* "Todos" pill */}
-        <button
-          ref={selectedEventId === 'all' ? activePillRef : null}
-          onClick={() => setSelectedEventId('all')}
-          className={cn(
-            'flex-shrink-0 flex items-center gap-2 pl-3 pr-3.5 py-2 rounded-xl border transition-all',
-            selectedEventId === 'all'
-              ? 'bg-primary/15 border-primary/30 text-white shadow-[0_2px_12px_rgba(228,30,43,0.25)]'
-              : 'bg-white/[0.03] border-white/[0.06] text-white/70',
-          )}
-        >
-          <Layers className={cn('w-3.5 h-3.5', selectedEventId === 'all' ? 'text-primary' : 'text-white/40')} />
-          <div className="text-left">
-            <p className="text-[11px] font-bold leading-tight">Todos</p>
-            <p className={cn('text-[9px] leading-tight', selectedEventId === 'all' ? 'text-white/60' : 'text-white/30')}>
-              {insideAcrossAll}/{totalAcrossAll}
-            </p>
-          </div>
-        </button>
-
-        {sorted.map((ev) => {
-          const active = selectedEventId === ev.id
-          const name = ev.group_name || ev.title
-          const counts = perEventCounts[ev.id] || { total: 0, inside: 0 }
-          const time = new Date(ev.date).toLocaleTimeString('es-ES', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-          })
-          const pct = counts.total > 0 ? Math.round((counts.inside / counts.total) * 100) : 0
-          return (
-            <button
-              key={ev.id}
-              ref={active ? activePillRef : null}
-              onClick={() => setSelectedEventId(ev.id)}
-              className={cn(
-                'flex-shrink-0 relative flex items-center gap-2.5 pl-3 pr-3.5 py-2 rounded-xl border transition-all overflow-hidden',
-                active
-                  ? 'bg-gradient-to-br from-primary/20 to-primary/5 border-primary/40 text-white shadow-[0_2px_14px_rgba(228,30,43,0.3)]'
-                  : 'bg-white/[0.03] border-white/[0.06] text-white/70',
-              )}
-            >
-              {/* Subtle progress bar fill at bottom for active pill */}
-              {active && counts.total > 0 && (
-                <div
-                  className="absolute left-0 bottom-0 h-0.5 bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
-              )}
-              <div className="text-left min-w-0">
-                <p className="text-[11px] font-bold leading-tight truncate max-w-[140px]">{name}</p>
-                <p className={cn('text-[9px] leading-tight tabular-nums', active ? 'text-white/70' : 'text-white/35')}>
-                  {time} · {counts.inside}/{counts.total}
-                </p>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 function ScannerContent() {
   const { doorCount } = useScanner()
   const [tab, setTab] = useState<'scan' | 'door' | 'list'>('scan')
+  const [switcherOpen, setSwitcherOpen] = useState(false)
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <EventScopeSelector />
+      <EventHero onOpenSwitcher={() => setSwitcherOpen(true)} />
       <StatsBar />
 
       {/* Tab switcher — gradient on active, subtle shadow, icon pops */}
@@ -196,6 +86,9 @@ function ScannerContent() {
           {tab === 'list' && <ListTab />}
         </motion.div>
       </AnimatePresence>
+
+      {/* Bottom-sheet for changing which event is in focus */}
+      <EventSwitcherSheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
     </div>
   )
 }

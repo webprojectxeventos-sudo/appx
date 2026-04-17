@@ -396,7 +396,10 @@ export function ScanTab() {
 
   return (
     <div className="space-y-3">
-      {/* Camera + overlays */}
+      {/* Camera + overlays.
+          - When scanning: force ~320px tall so the qr-reader video has room.
+          - When idle: collapse to the compact hint strip so the real estate
+            is reclaimed for the event hero + recent scans list above/below. */}
       <div
         ref={scannerRef}
         className={cn(
@@ -407,9 +410,9 @@ export function ScanTab() {
           flash === 'pending' && 'border-primary/60',
           flash === 'none' && 'border-black-border',
         )}
-        style={{ minHeight: '320px' }}
+        style={scanning ? { minHeight: '320px' } : undefined}
       >
-        <div id="qr-reader" className="w-full" />
+        <div id="qr-reader" className={scanning ? 'w-full' : ''} />
 
         {/* Radial pulse on scan — overlaid under the corners for a satisfying "hit" feel.
             Keyed by flash state so it restarts on every scan. */}
@@ -435,7 +438,10 @@ export function ScanTab() {
           </div>
         )}
 
-        {/* Viewfinder corners (visible when scanning) */}
+        {/* Viewfinder corners (visible when scanning).
+            Chunkier strokes + breathing glow make the capture area feel
+            deliberate. The scan-line sweep telegraphs "I'm actively watching"
+            even when no flash is firing — good for operator confidence. */}
         {scanning && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div
@@ -445,55 +451,78 @@ export function ScanTab() {
                 flash === 'error' && 'scale-[0.98]',
               )}
             >
+              {/* Ambient scan line — pauses when a flash is active to avoid
+                  visual noise on top of the pulse animation. */}
+              {flash === 'none' && (
+                <div
+                  className="absolute left-1 right-1 top-1 h-px bg-gradient-to-r from-transparent via-primary/70 to-transparent pointer-events-none"
+                  style={{
+                    animation: 'scan-line-sweep 2.4s ease-in-out infinite',
+                    boxShadow: '0 0 8px rgba(228,30,43,0.6)',
+                  }}
+                />
+              )}
               <div
                 className={cn(
-                  'absolute top-0 left-0 w-7 h-7 border-t-2 border-l-2 rounded-tl transition-colors duration-200',
+                  'absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] rounded-tl transition-colors duration-200',
                   flashCorner(flash),
                 )}
+                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite' } : undefined}
               />
               <div
                 className={cn(
-                  'absolute top-0 right-0 w-7 h-7 border-t-2 border-r-2 rounded-tr transition-colors duration-200',
+                  'absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] rounded-tr transition-colors duration-200',
                   flashCorner(flash),
                 )}
+                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.15s' } : undefined}
               />
               <div
                 className={cn(
-                  'absolute bottom-0 left-0 w-7 h-7 border-b-2 border-l-2 rounded-bl transition-colors duration-200',
+                  'absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] rounded-bl transition-colors duration-200',
                   flashCorner(flash),
                 )}
+                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.3s' } : undefined}
               />
               <div
                 className={cn(
-                  'absolute bottom-0 right-0 w-7 h-7 border-b-2 border-r-2 rounded-br transition-colors duration-200',
+                  'absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] rounded-br transition-colors duration-200',
                   flashCorner(flash),
                 )}
+                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.45s' } : undefined}
               />
             </div>
           </div>
         )}
 
-        {/* Idle state — animated gradient + pulsing scan lines evoke an active sensor */}
+        {/* Idle state — compact horizontal strip instead of dominating the
+            screen. Drops ~190px compared to the previous big-circle layout
+            which forced the card to 320px tall even when idle. */}
         {!scanning && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden">
-            {/* Ambient radial gradient background */}
+          <div className="relative py-5 px-5 flex items-center gap-3 overflow-hidden">
+            {/* Ambient radial gradient (subtle) */}
             <div
-              className="absolute inset-0 opacity-60"
+              className="absolute inset-0 opacity-50 pointer-events-none"
               style={{
                 background:
-                  'radial-gradient(circle at 50% 50%, rgba(228,30,43,0.15) 0%, transparent 60%)',
+                  'radial-gradient(circle at 30% 50%, rgba(228,30,43,0.12) 0%, transparent 65%)',
               }}
             />
-            {/* Decorative scan line pulse */}
+            {/* Decorative scan line pulse — hints at "sensor ready" */}
             <div
-              className="absolute left-8 right-8 top-1/2 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+              className="absolute left-6 right-6 top-1/2 h-px bg-gradient-to-r from-transparent via-primary/35 to-transparent pointer-events-none"
               style={{ animation: 'glow-pulse 2.5s ease-in-out infinite' }}
             />
-            <div className="relative w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-3 backdrop-blur-sm">
-              <Camera className="w-7 h-7 text-primary" />
+            <div className="relative w-11 h-11 rounded-xl bg-primary/12 border border-primary/25 flex items-center justify-center flex-shrink-0 backdrop-blur-sm">
+              <Camera className="w-5 h-5 text-primary" />
             </div>
-            <p className="relative text-white/70 text-sm font-medium">Pulsa para escanear</p>
-            <p className="relative text-white/30 text-[11px] mt-1">QR · EAN · Code128</p>
+            <div className="relative min-w-0 flex-1">
+              <p className="text-sm font-bold text-white leading-tight">
+                Escáner listo
+              </p>
+              <p className="text-[11px] text-white/40 mt-0.5">
+                Pulsa para abrir la cámara · QR · EAN · Code128
+              </p>
+            </div>
           </div>
         )}
 

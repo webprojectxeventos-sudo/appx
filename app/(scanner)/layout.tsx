@@ -98,6 +98,12 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
   }
 
   const activeEventCount = events?.length || 0
+  // Human-friendly date for the header context line, e.g. "Vie 17 abr"
+  const todayLabel = new Date().toLocaleDateString('es-ES', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
 
   return (
     <div className="min-h-screen bg-background text-white">
@@ -154,6 +160,7 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
             <MapPinIcon className="w-3 h-3 text-primary/70" />
             <span className="text-[11px] text-white-muted">
               {venue.name}
+              <span className="text-white/30"> · {todayLabel}</span>
               {activeEventCount > 0 && (
                 <span className="text-white/30"> · {activeEventCount} evento{activeEventCount !== 1 ? 's' : ''}</span>
               )}

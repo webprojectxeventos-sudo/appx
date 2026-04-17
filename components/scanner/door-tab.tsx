@@ -204,8 +204,9 @@ export function DoorTab() {
         </div>
 
         {/* Event selector — hidden when the user has already scoped to one
-            event via the top EventScopeSelector (the doorEventId auto-syncs
-            to that same event, making this picker redundant). */}
+            event via the EventHero / switcher at the top of the page (the
+            doorEventId auto-syncs to that same event, making this picker
+            redundant). */}
         {multipleEvents && selectedEventId === 'all' && (
           <div className="space-y-2">
             <label className="text-[11px] text-white-muted font-medium">Grupo</label>
