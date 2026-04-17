@@ -431,8 +431,9 @@ export function ListTab() {
         ))}
       </div>
 
-      {/* Group filter */}
-      {multipleEvents && (
+      {/* Group filter — hidden when the user has already scoped to a single
+          event via the top EventScopeSelector (would be redundant). */}
+      {multipleEvents && selectedEventId === 'all' && (
         <EventDayGroups
           eventsByDay={eventsByDay}
           selectedId={groupFilter}
