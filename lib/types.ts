@@ -11,6 +11,9 @@ export type Database = {
           event_id: string | null
           organization_id: string | null
           gender: 'masculino' | 'femenino' | 'otro' | null
+          full_name_locked: boolean
+          profanity_strikes: number
+          last_strike_at: string | null
           created_at: string
         }
         Insert: {
@@ -22,6 +25,9 @@ export type Database = {
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
+          full_name_locked?: boolean
+          profanity_strikes?: number
+          last_strike_at?: string | null
           created_at?: string
         }
         Update: {
@@ -33,6 +39,9 @@ export type Database = {
           event_id?: string | null
           organization_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
+          full_name_locked?: boolean
+          profanity_strikes?: number
+          last_strike_at?: string | null
           created_at?: string
         }
         Relationships: []
@@ -53,6 +62,7 @@ export type Database = {
           venue_id: string | null
           group_name: string | null
           video_url: string | null
+          chat_enabled: boolean
           created_by: string
           created_at: string
         }
@@ -71,6 +81,7 @@ export type Database = {
           venue_id?: string | null
           group_name?: string | null
           video_url?: string | null
+          chat_enabled?: boolean
           created_by: string
           created_at?: string
         }
@@ -89,6 +100,7 @@ export type Database = {
           venue_id?: string | null
           group_name?: string | null
           video_url?: string | null
+          chat_enabled?: boolean
           created_by?: string
           created_at?: string
         }

@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { filterProfanity } from '@/lib/profanity-filter'
+import { authFetch } from '@/lib/auth-fetch'
 import { notifyAnnouncement, requestNotificationPermission } from '@/lib/notifications'
 import type { Database } from '@/lib/types'
 import { MessageCircle, Send, Megaphone, ChevronDown, Bell, X, Users, User, ShieldAlert } from 'lucide-react'
@@ -406,6 +407,8 @@ export default function ChatPage() {
     }
   }, [event?.id, venue?.id, activeTab, fetchMessages])
 
+  const [sendError, setSendError] = useState<string | null>(null)
+
   const handleSendMessage = async () => {
     const trimmed = inputValue.trim()
     if (!trimmed || !user?.id || cooldownLeft > 0 || isBanned) return
@@ -415,6 +418,13 @@ export default function ChatPage() {
     // Max length check
     if (trimmed.length > MAX_MSG_LENGTH) {
       setInputValue(trimmed.slice(0, MAX_MSG_LENGTH))
+      return
+    }
+
+    // Client-side gate (server enforces too): block if no full_name
+    if (!profile?.full_name?.trim()) {
+      setSendError('Debes completar tu nombre antes de escribir. Ve a tu perfil.')
+      setTimeout(() => setSendError(null), 4000)
       return
     }
 
@@ -432,13 +442,14 @@ export default function ChatPage() {
       return
     }
 
-    const filteredContent = filterProfanity(trimmed)
     const tempId = `temp-${crypto.randomUUID()}`
 
     // --- Optimistic: add message + clear input immediately ---
+    // We show the RAW content (server-side filter will adjust if needed — the
+    // realtime INSERT payload will swap the optimistic msg for the real one).
     const optimisticMsg: MessageWithData = {
       id: tempId,
-      content: filteredContent,
+      content: trimmed,
       user_id: user.id,
       event_id: activeTab === 'private' ? event!.id : null,
       venue_id: activeTab === 'general' ? venue!.id : null,
@@ -454,20 +465,33 @@ export default function ChatPage() {
 
     setMessages(prev => [...prev, optimisticMsg])
     setInputValue('')
+    setSendError(null)
     lastSentContent.current = trimmed.toLowerCase()
     sentTimestamps.current.push(now)
     startCooldown(COOLDOWN_MS)
 
-    // --- Background insert — user already sees the message ---
-    const insertData = activeTab === 'private'
-      ? { content: filteredContent, user_id: user.id, event_id: event!.id, is_announcement: false, is_general: false }
-      : { content: filteredContent, user_id: user.id, venue_id: venue!.id, is_announcement: false, is_general: true }
+    // --- Server-side send pipeline (auth, filter, rate-limit, mute/ban, kill-switch) ---
+    const body = activeTab === 'private'
+      ? { content: trimmed, event_id: event!.id, is_general: false }
+      : { content: trimmed, venue_id: venue!.id, is_general: true }
 
-    const { error } = await supabase.from('messages').insert(insertData)
-    if (error) {
-      // Rollback optimistic message
+    try {
+      const res = await authFetch('/api/chat/send', body)
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        // Rollback optimistic message
+        setMessages(prev => prev.filter(m => m.id !== tempId))
+        const reason = res.headers.get('X-Reason')
+        if (reason === 'BANNED') setIsBanned(true)
+        setSendError(data?.error || 'No se pudo enviar el mensaje')
+        setTimeout(() => setSendError(null), 4500)
+      }
+      // On success: the realtime INSERT handler will swap the temp msg for the real one
+    } catch (err) {
       setMessages(prev => prev.filter(m => m.id !== tempId))
-      console.error('Error sending message:', error)
+      setSendError(err instanceof Error ? err.message : 'Error de red')
+      setTimeout(() => setSendError(null), 4500)
     }
   }
 
@@ -942,11 +966,35 @@ export default function ChatPage() {
             </span>
           </div>
         )}
+
+        {/* Send error banner (profanity strike, rate limit, kill-switch, etc.) */}
+        {sendError && (
+          <div
+            className="mb-2 flex items-start gap-2.5 px-3 py-2.5 rounded-xl animate-scale-in"
+            style={{ backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+            <span className="text-[12px] text-red-300/90 leading-snug">{sendError}</span>
+          </div>
+        )}
+
         {isBanned ? (
           <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
             <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
             <span className="text-[13px] text-red-300/80">Chat restringido por un moderador</span>
           </div>
+        ) : !profile?.full_name?.trim() ? (
+          <Link
+            href="/profile"
+            className="flex items-center gap-2.5 px-4 py-3 rounded-2xl active:scale-[0.99] transition-transform"
+            style={{ backgroundColor: 'rgba(212,168,67,0.06)', border: '1px solid rgba(212,168,67,0.2)' }}
+          >
+            <User className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-[13px] text-amber-200/80 flex-1">
+              Completa tu nombre para poder escribir
+            </span>
+            <ChevronDown className="w-4 h-4 text-amber-400/70 -rotate-90 shrink-0" />
+          </Link>
         ) : (
           <div className="flex items-end gap-2">
             <div

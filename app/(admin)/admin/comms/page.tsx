@@ -12,7 +12,7 @@ import { Pagination } from '@/components/admin/pagination'
 import { cn, toLocalDateKey } from '@/lib/utils'
 import {
   Send, Radio, MessageCircle, Shield, ShieldOff, Trash2, Pin, PinOff, VolumeX, Volume2,
-  Check, FileText, Bell, BellRing, Clock, Users, ChevronDown,
+  Check, FileText, Bell, BellRing, Clock, Users, ChevronDown, Mail, UserCheck, Power, PowerOff,
 } from 'lucide-react'
 import { BanModal } from '@/components/admin/attendees/ban-modal'
 import type { Database } from '@/lib/types'
@@ -26,6 +26,8 @@ type ChatBan = Database['public']['Tables']['chat_bans']['Row']
 interface MessageWithUser extends Message {
   userName: string
   userAvatar: string | null
+  userEmail: string | null
+  addedByName: string | null  // null = self-signup, else the admin who added them
 }
 
 type ActiveTab = 'broadcast' | 'moderation'
@@ -66,7 +68,12 @@ export default function CommsPage() {
   const [banTarget, setBanTarget] = useState<{ userId: string; userName: string; eventIds: string[] } | null>(null)
   const [modLoading, setModLoading] = useState(false)
 
-  const userCacheRef = useRef<Record<string, { name: string; avatar: string | null }>>({})
+  const userCacheRef = useRef<Record<string, { name: string; avatar: string | null; email: string | null }>>({})
+  // Cache of added_by keyed by `${user_id}:${event_id}` (since users can be added
+  // to multiple events by different admins, we can't key by user alone).
+  const addedByCacheRef = useRef<Record<string, string | null>>({})
+  // Per-event chat_enabled state (kill-switch), hydrated from the events list
+  const [chatDisabledEventIds, setChatDisabledEventIds] = useState<Set<string>>(new Set())
   const modTotalPages = Math.ceil(modTotal / PAGE_SIZE)
 
   // Version counter to prevent stale fetch responses from overwriting fresh data
@@ -141,18 +148,95 @@ export default function CommsPage() {
   useEffect(() => { setSelectedVenueId(null); setSelectedEventIds([]); setSelectAll(false) }, [selectedDate])
   useEffect(() => { setSelectedEventIds([]); setSelectAll(false) }, [selectedVenueId])
 
-  // Resolve user names
+  // Resolve user metadata (name, avatar, email, added_by)
   const resolveUserNames = useCallback(async (msgs: Message[]): Promise<MessageWithUser[]> => {
-    const unknownIds = [...new Set(msgs.map(m => m.user_id).filter(id => !userCacheRef.current[id]))]
-    if (unknownIds.length > 0) {
-      const { data } = await supabase.from('users').select('id, full_name, avatar_url').in('id', unknownIds)
-      data?.forEach(u => { userCacheRef.current[u.id] = { name: u.full_name || 'Usuario', avatar: u.avatar_url } })
+    // 1. Users: fetch anyone we haven't cached yet (name / avatar / email)
+    const unknownUserIds = [...new Set(msgs.map(m => m.user_id).filter(id => !userCacheRef.current[id]))]
+    if (unknownUserIds.length > 0) {
+      const { data } = await supabase
+        .from('users')
+        .select('id, full_name, avatar_url, email')
+        .in('id', unknownUserIds)
+      data?.forEach(u => {
+        userCacheRef.current[u.id] = {
+          name: u.full_name || 'Usuario',
+          avatar: u.avatar_url,
+          email: u.email,
+        }
+      })
     }
-    return msgs.map(m => ({
-      ...m,
-      userName: userCacheRef.current[m.user_id]?.name || 'Usuario',
-      userAvatar: userCacheRef.current[m.user_id]?.avatar || null,
-    }))
+
+    // 2. Added_by: fetch user_events rows for (user_id, event_id) pairs we don't
+    //    have. Then for each resolved user_events row, resolve the adder's name.
+    const missingPairs: Array<{ uid: string; eid: string }> = []
+    msgs.forEach(m => {
+      if (!m.event_id) return
+      const key = `${m.user_id}:${m.event_id}`
+      if (!(key in addedByCacheRef.current)) {
+        missingPairs.push({ uid: m.user_id, eid: m.event_id })
+      }
+    })
+
+    if (missingPairs.length > 0) {
+      // Split into parallel queries per event_id (users.in()-per-event) — keeps
+      // things simple vs. constructing a complex OR filter.
+      const byEvent: Record<string, string[]> = {}
+      missingPairs.forEach(({ uid, eid }) => {
+        byEvent[eid] = byEvent[eid] || []
+        byEvent[eid].push(uid)
+      })
+
+      const membershipRows: Array<{ user_id: string; event_id: string; added_by: string | null }> = []
+      await Promise.all(
+        Object.entries(byEvent).map(async ([eid, uids]) => {
+          const { data } = await supabase
+            .from('user_events')
+            .select('user_id, event_id, added_by')
+            .eq('event_id', eid)
+            .in('user_id', uids)
+          if (data) membershipRows.push(...data)
+        })
+      )
+
+      // Resolve adder names
+      const adderIds = [...new Set(
+        membershipRows.map(r => r.added_by).filter((x): x is string => !!x && !userCacheRef.current[x])
+      )]
+      if (adderIds.length > 0) {
+        const { data } = await supabase.from('users').select('id, full_name, avatar_url, email').in('id', adderIds)
+        data?.forEach(u => {
+          userCacheRef.current[u.id] = {
+            name: u.full_name || 'Usuario',
+            avatar: u.avatar_url,
+            email: u.email,
+          }
+        })
+      }
+
+      membershipRows.forEach(r => {
+        const key = `${r.user_id}:${r.event_id}`
+        addedByCacheRef.current[key] = r.added_by
+          ? userCacheRef.current[r.added_by]?.name || null
+          : null
+      })
+      // Also fill in "null" for any pair we asked about but didn't find (no row)
+      missingPairs.forEach(({ uid, eid }) => {
+        const key = `${uid}:${eid}`
+        if (!(key in addedByCacheRef.current)) addedByCacheRef.current[key] = null
+      })
+    }
+
+    return msgs.map(m => {
+      const cache = userCacheRef.current[m.user_id]
+      const addedKey = m.event_id ? `${m.user_id}:${m.event_id}` : null
+      return {
+        ...m,
+        userName: cache?.name || 'Usuario',
+        userAvatar: cache?.avatar || null,
+        userEmail: cache?.email || null,
+        addedByName: addedKey ? (addedByCacheRef.current[addedKey] ?? null) : null,
+      }
+    })
   }, [])
 
   // Fetch moderation messages
@@ -197,6 +281,32 @@ export default function CommsPage() {
   }, [activeEvents.length])
 
   useEffect(() => { if (activeTab === 'moderation') fetchMutedAndBanned() }, [activeTab, fetchMutedAndBanned])
+
+  // Hydrate kill-switch state from the events list (chat_enabled column).
+  useEffect(() => {
+    setChatDisabledEventIds(new Set(allEvents.filter(e => e.chat_enabled === false).map(e => e.id)))
+  }, [allEvents])
+
+  // Toggle kill-switch for an event. RLS allows super_admin / admin / group_admin
+  // to update events.chat_enabled.
+  const handleToggleChatEnabled = async (eventId: string) => {
+    const currentlyDisabled = chatDisabledEventIds.has(eventId)
+    const nextEnabled = currentlyDisabled  // flip: disabled → enable
+    const { error } = await supabase
+      .from('events')
+      .update({ chat_enabled: nextEnabled })
+      .eq('id', eventId)
+    if (error) { showError('Error al cambiar el chat'); return }
+    setChatDisabledEventIds(prev => {
+      const next = new Set(prev)
+      if (nextEnabled) next.delete(eventId)
+      else next.add(eventId)
+      return next
+    })
+    // Keep allEvents in sync so the hydration effect doesn't fight us
+    setAllEvents(prev => prev.map(e => e.id === eventId ? { ...e, chat_enabled: nextEnabled } : e))
+    success(nextEnabled ? 'Chat reactivado' : 'Chat desactivado')
+  }
 
   // Broadcast handlers
   const toggleEvent = (id: string) => setSelectedEventIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -393,6 +503,55 @@ export default function CommsPage() {
       {/* Moderation Tab */}
       {activeTab === 'moderation' && activeEvents.length > 0 && (
         <>
+          {/* Chat kill-switch — per active event. One row per event, one toggle
+              each. Disabling instantly blocks /api/chat/send for that event. */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-black-border">
+              <Power className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-semibold text-white">Estado del chat</h3>
+              <span className="text-[10px] text-white-muted ml-auto">
+                Activa/desactiva al instante
+              </span>
+            </div>
+            <div className="divide-y divide-black-border">
+              {activeEvents.map(ev => {
+                const isDisabled = chatDisabledEventIds.has(ev.id)
+                return (
+                  <div key={ev.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">
+                        {ev.group_name || ev.title}
+                      </p>
+                      <p className={cn(
+                        'text-[11px] mt-0.5 flex items-center gap-1',
+                        isDisabled ? 'text-red-400' : 'text-emerald-400/80'
+                      )}>
+                        {isDisabled ? (
+                          <><PowerOff className="w-2.5 h-2.5" /> Chat desactivado</>
+                        ) : (
+                          <><Power className="w-2.5 h-2.5" /> Chat activo</>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleToggleChatEnabled(ev.id)}
+                      className={cn(
+                        'relative w-11 h-6 rounded-full transition-colors shrink-0',
+                        isDisabled ? 'bg-white/10' : 'bg-primary shadow-[0_0_8px_rgba(228,30,43,0.3)]'
+                      )}
+                      aria-label={isDisabled ? 'Activar chat' : 'Desactivar chat'}
+                    >
+                      <div className={cn(
+                        'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform',
+                        !isDisabled && 'translate-x-5'
+                      )} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           <SearchInput value={modSearch} onChange={setModSearch} placeholder="Buscar en mensajes..." />
 
           {modLoading ? (
@@ -419,6 +578,28 @@ export default function CommsPage() {
                           {isMuted && !isBanned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">Silenciado</span>}
                           {msg.is_pinned && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400">Fijado</span>}
                           <span className="text-[10px] text-white-muted ml-auto">{formatDate(msg.created_at)}</span>
+                        </div>
+                        {/* Identity row: email + added_by — critical for moderation
+                            (ties an insulting message back to a real person so the
+                            organizer can contact them or their school directly). */}
+                        <div className="flex items-center gap-2.5 flex-wrap mb-1.5 text-[10px] text-white-muted">
+                          {msg.userEmail && (
+                            <span className="flex items-center gap-1">
+                              <Mail className="w-2.5 h-2.5" />
+                              <span className="truncate max-w-[200px]">{msg.userEmail}</span>
+                            </span>
+                          )}
+                          {msg.addedByName ? (
+                            <span className="flex items-center gap-1 text-white/40">
+                              <UserCheck className="w-2.5 h-2.5" />
+                              anadido por {msg.addedByName}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-white/30">
+                              <UserCheck className="w-2.5 h-2.5" />
+                              auto-registro
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-white/80 whitespace-pre-wrap break-words">{msg.content}</p>
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">

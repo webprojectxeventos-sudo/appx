@@ -122,23 +122,25 @@ export default function ProfilePage() {
     setSaved(false)
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          full_name: fullName || null,
-          gender: (gender as 'masculino' | 'femenino' | 'otro') || null,
-          avatar_url: avatarUrl || null,
-        })
-        .eq('id', user.id)
+      const res = await authFetch('/api/user/save-profile', {
+        full_name: fullName,
+        gender: gender || null,
+        avatar_url: avatarUrl || null,
+      })
+      const data = await res.json().catch(() => ({}))
 
-      if (error) throw error
+      if (!res.ok) {
+        showError(data?.error || 'Error al guardar')
+        return
+      }
+
       setSaved(true)
       success('Perfil guardado')
       await refreshProfile()
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
       console.error('Save error:', err)
-      showError('Error al guardar')
+      showError(err instanceof Error ? err.message : 'Error al guardar')
     } finally {
       setSaving(false)
     }
@@ -339,14 +341,31 @@ export default function ProfilePage() {
       {/* Name */}
       <div className="card p-5 space-y-4">
         <div>
-          <label className="text-xs font-medium text-white-muted mb-1.5 block">Nombre completo</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-white-muted">Nombre completo</label>
+            {profile?.full_name_locked && (
+              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-400/80">
+                <Lock className="w-2.5 h-2.5" />
+                Bloqueado
+              </span>
+            )}
+          </div>
           <input
             type="text"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            placeholder="Tu nombre"
-            className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
+            disabled={!!profile?.full_name_locked}
+            placeholder="Nombre y apellido"
+            className={cn(
+              'w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors',
+              profile?.full_name_locked && 'opacity-60 cursor-not-allowed'
+            )}
           />
+          <p className="text-[11px] text-white-muted mt-1.5 leading-relaxed">
+            {profile?.full_name_locked
+              ? 'Tu nombre esta bloqueado. Contacta con un organizador si necesitas corregirlo.'
+              : 'Escribe nombre y apellido reales (minimo 2 palabras). Se usara en el chat y no se podra cambiar despues.'}
+          </p>
         </div>
 
         {/* Gender */}
