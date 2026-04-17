@@ -38,6 +38,9 @@ export function DoorTab() {
     eventIds,
     online,
   } = useScanner()
+  // Only show the per-row event label when rows mix multiple events.
+  // When scoped to one event, the label would repeat on every row.
+  const showEventLabel = multipleEvents && selectedEventId === 'all'
   const toast = useToast()
 
   const [doorName, setDoorName] = useState('')
@@ -200,8 +203,10 @@ export function DoorTab() {
           />
         </div>
 
-        {/* Event selector */}
-        {multipleEvents && (
+        {/* Event selector — hidden when the user has already scoped to one
+            event via the top EventScopeSelector (the doorEventId auto-syncs
+            to that same event, making this picker redundant). */}
+        {multipleEvents && selectedEventId === 'all' && (
           <div className="space-y-2">
             <label className="text-[11px] text-white-muted font-medium">Grupo</label>
             <EventDayGroups
@@ -210,6 +215,15 @@ export function DoorTab() {
               onSelect={(id) => setDoorEventId(id)}
             />
           </div>
+        )}
+
+        {/* When scoped to a specific event, surface a small hint so the user
+            sees WHICH event this registration will be applied to. */}
+        {multipleEvents && selectedEventId !== 'all' && eventNameMap[doorEventId] && (
+          <p className="text-[11px] text-white-muted">
+            Registrando en{' '}
+            <span className="text-white font-medium">{eventNameMap[doorEventId]}</span>
+          </p>
         )}
 
         {/* Register button */}
@@ -287,7 +301,7 @@ export function DoorTab() {
                 <span className="text-xs text-white flex-1 truncate">
                   {a.user_name || 'Sin nombre'}
                 </span>
-                {multipleEvents && (
+                {showEventLabel && (
                   <span className="text-[10px] text-white/25 truncate max-w-[80px]">
                     {eventNameMap[a.event_id]}
                   </span>

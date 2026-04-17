@@ -5,12 +5,9 @@ import {
   Search,
   Users,
   UserCheck,
-  CheckCircle2,
-  XCircle,
   RefreshCw,
   Clock,
   Share2,
-  Copy,
   Check,
   Undo2,
   X,
@@ -30,9 +27,8 @@ const LOAD_MORE_STEP = 50
 
 export function ListTab() {
   const {
-    // filteredAttendees respects the global per-event selector; the full
-    // `attendees` is only needed for the cross-event export summary.
-    attendees: allAttendees,
+    // filteredAttendees respects the global per-event selector; all list
+    // operations read from that scoped set.
     filteredAttendees,
     selectedEventId,
     loadAttendees,
@@ -506,7 +502,10 @@ export function ListTab() {
                 )}
               </p>
               <p className="text-[11px] text-white-muted truncate">
-                {multipleEvents && eventNameMap[attendee.event_id]
+                {/* Show event name on each row only when rows span multiple
+                    events. When scoped to one, all rows share the same event
+                    — so the label would be repetitive noise. */}
+                {multipleEvents && selectedEventId === 'all' && eventNameMap[attendee.event_id]
                   ? `${eventNameMap[attendee.event_id]} · `
                   : ''}
                 {attendee.qr_code.startsWith('DOOR-')

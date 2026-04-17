@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { QrCode, DoorOpen, Users, Layers } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -18,10 +18,13 @@ import type { ScannerEvent } from '@/components/scanner/scanner-types'
 // switches the scanner (stats, list, door recent entries) to that event only.
 
 function EventScopeSelector() {
-  const { serverEvents, selectedEventId, setSelectedEventId, attendees, eventNameMap } = useScanner()
+  const { serverEvents, selectedEventId, setSelectedEventId, attendees } = useScanner()
+  const activePillRef = useRef<HTMLButtonElement>(null)
 
-  // Per-event quick stats for the pill subtitle: total / inside
-  const perEventCounts = (() => {
+  // Per-event quick stats for the pill subtitle: total / inside. Memoized so
+  // we don't re-iterate attendees on every render (cheap for 300, cumulative
+  // with parent renders for 1000+).
+  const perEventCounts = useMemo(() => {
     const totals: Record<string, { total: number; inside: number }> = {}
     for (const a of attendees) {
       const t = totals[a.event_id] || { total: 0, inside: 0 }
@@ -30,23 +33,38 @@ function EventScopeSelector() {
       totals[a.event_id] = t
     }
     return totals
-  })()
+  }, [attendees])
 
-  const totalAcrossAll = attendees.length
-  const insideAcrossAll = attendees.filter((a) => a.status === 'used').length
+  const { totalAcrossAll, insideAcrossAll } = useMemo(() => {
+    let inside = 0
+    for (const a of attendees) if (a.status === 'used') inside++
+    return { totalAcrossAll: attendees.length, insideAcrossAll: inside }
+  }, [attendees])
+
+  const sorted = useMemo<ScannerEvent[]>(
+    () => [...serverEvents].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [serverEvents],
+  )
+
+  // When the selected event changes, smoothly scroll its pill into view so the
+  // user always sees what scope they're in even when the rail overflows.
+  useEffect(() => {
+    activePillRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    })
+  }, [selectedEventId])
 
   // If only one event, hide the selector — nothing to switch between
   if (serverEvents.length <= 1) return null
-
-  const sorted: ScannerEvent[] = [...serverEvents].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-  )
 
   return (
     <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
       <div className="flex gap-2 pb-1 min-w-min">
         {/* "Todos" pill */}
         <button
+          ref={selectedEventId === 'all' ? activePillRef : null}
           onClick={() => setSelectedEventId('all')}
           className={cn(
             'flex-shrink-0 flex items-center gap-2 pl-3 pr-3.5 py-2 rounded-xl border transition-all',
@@ -77,6 +95,7 @@ function EventScopeSelector() {
           return (
             <button
               key={ev.id}
+              ref={active ? activePillRef : null}
               onClick={() => setSelectedEventId(ev.id)}
               className={cn(
                 'flex-shrink-0 relative flex items-center gap-2.5 pl-3 pr-3.5 py-2 rounded-xl border transition-all overflow-hidden',
