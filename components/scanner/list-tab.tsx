@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Search,
   Users,
@@ -22,6 +22,7 @@ import { EventDayGroups } from './event-day-groups'
 import { playBeep, haptic, formatTime } from './scanner-utils'
 import { useToast } from '@/components/ui/toast'
 import * as outbox from '@/lib/scanner-outbox'
+import { fuzzyMatchAny } from '@/lib/fuzzy-match'
 import type { ScanResult } from './scanner-types'
 
 const INITIAL_VISIBLE = 50
@@ -49,22 +50,37 @@ export function ListTab() {
   const [groupFilter, setGroupFilter] = useState<string>('all')
   const [copied, setCopied] = useState(false)
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const rowRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
 
   // ── Filters ──────────────────────────────────────────────────────────────
 
   const filteredAttendees = useMemo(() => {
-    return attendees.filter((a) => {
-      if (statusFilter === 'inside' && a.status !== 'used') return false
-      if (statusFilter === 'pending' && a.status === 'used') return false
-      if (groupFilter !== 'all' && a.event_id !== groupFilter) return false
-      if (!searchQuery) return true
-      const q = searchQuery.toLowerCase()
-      return (
-        (a.user_name || '').toLowerCase().includes(q) ||
-        a.user_email.toLowerCase().includes(q) ||
-        (eventNameMap[a.event_id] || '').toLowerCase().includes(q)
-      )
-    })
+    const trimmed = searchQuery.trim()
+    if (!trimmed && statusFilter === 'all' && groupFilter === 'all') {
+      return attendees
+    }
+    // When there's a search query, compute a score per row and sort best-first.
+    // Without a query we preserve the original attendee order.
+    const scored: Array<{ att: typeof attendees[number]; score: number }> = []
+    for (const a of attendees) {
+      if (statusFilter === 'inside' && a.status !== 'used') continue
+      if (statusFilter === 'pending' && a.status === 'used') continue
+      if (groupFilter !== 'all' && a.event_id !== groupFilter) continue
+      if (!trimmed) {
+        scored.push({ att: a, score: 0 })
+        continue
+      }
+      const r = fuzzyMatchAny(trimmed, [
+        a.user_name,
+        a.user_email,
+        eventNameMap[a.event_id] || null,
+      ])
+      if (r.matches) scored.push({ att: a, score: r.score })
+    }
+    if (trimmed) scored.sort((x, y) => y.score - x.score)
+    return scored.map((s) => s.att)
   }, [attendees, statusFilter, groupFilter, searchQuery, eventNameMap])
 
   // Reset visible count when filters change
@@ -192,6 +208,81 @@ export function ListTab() {
     }
   }
 
+  // ── Keyboard shortcuts (desktop / external keyboard only) ───────────────
+
+  const visibleIds = useMemo(
+    () => filteredAttendees.slice(0, visibleCount).map((a) => a.id),
+    [filteredAttendees, visibleCount],
+  )
+
+  // Reset highlight when the visible set changes out from under it
+  useEffect(() => {
+    if (highlightedId && !visibleIds.includes(highlightedId)) {
+      setHighlightedId(visibleIds[0] ?? null)
+    }
+  }, [visibleIds, highlightedId])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const isInput =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+
+      // `/` always focuses search, even from inside inputs? No — only outside.
+      if (e.key === '/' && !isInput) {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        return
+      }
+
+      // The rest only when not typing
+      if (isInput) return
+
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        if (visibleIds.length === 0) return
+        e.preventDefault()
+        setHighlightedId((prev) => {
+          const idx = prev ? visibleIds.indexOf(prev) : -1
+          const nextIdx = Math.min(visibleIds.length - 1, idx + 1)
+          const nextId = visibleIds[nextIdx]
+          const el = rowRefs.current.get(nextId)
+          el?.scrollIntoView({ block: 'nearest' })
+          return nextId
+        })
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        if (visibleIds.length === 0) return
+        e.preventDefault()
+        setHighlightedId((prev) => {
+          const idx = prev ? visibleIds.indexOf(prev) : 0
+          const nextIdx = Math.max(0, idx - 1)
+          const nextId = visibleIds[nextIdx]
+          const el = rowRefs.current.get(nextId)
+          el?.scrollIntoView({ block: 'nearest' })
+          return nextId
+        })
+      } else if (e.key === 'Enter' && highlightedId) {
+        e.preventDefault()
+        const att = attendees.find((a) => a.id === highlightedId)
+        if (att && att.status !== 'used') manualCheckIn(att.id, att.qr_code)
+      } else if (e.key === 'u' && highlightedId) {
+        e.preventDefault()
+        const att = attendees.find((a) => a.id === highlightedId)
+        if (att && att.status === 'used') undoScan(att.id)
+      } else if (e.key === 'Escape' && highlightedId) {
+        setHighlightedId(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // manualCheckIn / undoScan are intentionally omitted: they are stable
+    // closures over the current render; the shortcuts should reflect the
+    // latest attendees/highlighted at key time, which they do via closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds, highlightedId, attendees])
+
   // ── Export / Share ────────────────────────────────────────────────────────
 
   const generateExportMessage = useCallback(() => {
@@ -265,11 +356,26 @@ export function ListTab() {
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white-muted" />
         <input
+          ref={searchInputRef}
           type="text"
           value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value)
             setVisibleCount(INITIAL_VISIBLE)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setSearchQuery('')
+              searchInputRef.current?.blur()
+            } else if (e.key === 'Enter' && filteredAttendees.length > 0) {
+              e.preventDefault()
+              const first = filteredAttendees[0]
+              setHighlightedId(first.id)
+              if (first.status !== 'used') {
+                manualCheckIn(first.id, first.qr_code)
+                setSearchQuery('')
+              }
+            }
           }}
           placeholder={
             multipleEvents ? 'Buscar nombre, email o grupo...' : 'Buscar asistente...'
@@ -357,7 +463,18 @@ export function ListTab() {
       {/* Attendee list */}
       <div className="space-y-2">
         {visibleAttendees.map((attendee) => (
-          <div key={attendee.id} className="card p-3.5 flex items-center gap-3">
+          <div
+            key={attendee.id}
+            ref={(el) => {
+              if (el) rowRefs.current.set(attendee.id, el)
+              else rowRefs.current.delete(attendee.id)
+            }}
+            onClick={() => setHighlightedId(attendee.id)}
+            className={cn(
+              'card p-3.5 flex items-center gap-3 transition-all',
+              highlightedId === attendee.id && 'ring-2 ring-primary/40 border-primary/40',
+            )}
+          >
             <div
               className={cn(
                 'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0',

@@ -1,6 +1,6 @@
 'use client'
 
-import { DoorOpen, XCircle, Clock } from 'lucide-react'
+import { DoorOpen, XCircle, Clock, TrendingUp, Flame } from 'lucide-react'
 import { useScanner } from './scanner-provider'
 import { PendingSyncBadge } from './pending-sync-badge'
 
@@ -15,6 +15,7 @@ export function StatsBar() {
     bootstrapError,
     loadAttendees,
     eventIds,
+    metrics,
   } = useScanner()
 
   const pct = stats.total > 0 ? Math.round((stats.scanned / stats.total) * 100) : 0
@@ -25,6 +26,7 @@ export function StatsBar() {
       <div className="flex justify-end -mt-1">
         <PendingSyncBadge />
       </div>
+
       {/* Bootstrap error banner */}
       {bootstrapError && (
         <div className="card p-3 border-red-500/30 bg-red-500/5 flex items-center gap-2.5">
@@ -76,20 +78,55 @@ export function StatsBar() {
           {/* Numbers grid */}
           <div className="grid grid-cols-3 gap-2">
             <div className="text-center">
-              <div className="text-xl font-bold text-white tabular-nums">{animTotal}</div>
+              <div data-scanner-stat className="text-xl font-bold text-white tabular-nums">{animTotal}</div>
               <div className="text-[10px] uppercase tracking-widest text-white-muted">Total</div>
             </div>
             <div className="text-center">
-              <div className="text-xl font-bold text-emerald-400 tabular-nums">{animScanned}</div>
+              <div data-scanner-stat className="text-xl font-bold text-emerald-400 tabular-nums">{animScanned}</div>
               <div className="text-[10px] uppercase tracking-widest text-white-muted">Dentro</div>
             </div>
             <div className="text-center">
-              <div className="text-xl font-bold text-amber-400 tabular-nums">{animPending}</div>
+              <div data-scanner-stat className="text-xl font-bold text-amber-400 tabular-nums">{animPending}</div>
               <div className="text-[10px] uppercase tracking-widest text-white-muted">
                 Pendiente
               </div>
             </div>
           </div>
+
+          {/* Live metrics row (velocity · ETA · peak hour) */}
+          {(metrics.velocityPerMin > 0 || metrics.peakHour !== null) && (
+            <div className="flex items-center gap-2.5 pt-1 border-t border-black-border">
+              {metrics.velocityPerMin > 0 && (
+                <MetricChip
+                  icon={<TrendingUp className="w-3 h-3" />}
+                  value={metrics.velocityPerMin.toFixed(1)}
+                  unit="/min"
+                  tone="primary"
+                />
+              )}
+              {metrics.etaMs !== null && metrics.etaMs < 24 * 60 * 60_000 && (
+                <MetricChip
+                  icon={<Clock className="w-3 h-3" />}
+                  value={formatEta(metrics.etaMs)}
+                  unit="ETA"
+                  tone="emerald"
+                />
+              )}
+              {metrics.peakHour !== null && (
+                <MetricChip
+                  icon={<Flame className="w-3 h-3" />}
+                  value={`${String(metrics.peakHour).padStart(2, '0')}h`}
+                  unit="pico"
+                  tone="amber"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Sparkline of last 2h (15-min buckets) */}
+          {metrics.sparkline.some((v) => v > 0) && (
+            <Sparkline values={metrics.sparkline} />
+          )}
 
           {/* Door badge */}
           {doorCount > 0 && (
@@ -102,6 +139,79 @@ export function StatsBar() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function MetricChip({
+  icon,
+  value,
+  unit,
+  tone,
+}: {
+  icon: React.ReactNode
+  value: string
+  unit: string
+  tone: 'primary' | 'emerald' | 'amber'
+}) {
+  const cls =
+    tone === 'primary'
+      ? 'text-primary bg-primary/10 border-primary/20'
+      : tone === 'emerald'
+        ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+        : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+  return (
+    <div
+      className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium tabular-nums ${cls}`}
+    >
+      {icon}
+      <span>{value}</span>
+      <span className="opacity-60">{unit}</span>
+    </div>
+  )
+}
+
+function formatEta(ms: number): string {
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${minutes}m`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (m === 0) return `${h}h`
+  return `${h}h${m}m`
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values)
+  const w = 200
+  const h = 28
+  const barGap = 2
+  const barW = (w - barGap * (values.length - 1)) / values.length
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] uppercase tracking-widest text-white/30 font-medium">
+        Entradas ultimas 2h
+      </p>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-7" preserveAspectRatio="none">
+        {values.map((v, i) => {
+          const barH = Math.max(1, (v / max) * (h - 2))
+          const x = i * (barW + barGap)
+          const y = h - barH
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={y}
+              width={barW}
+              height={barH}
+              rx={1.5}
+              className={v > 0 ? 'fill-emerald-400/80' : 'fill-white/10'}
+            />
+          )
+        })}
+      </svg>
     </div>
   )
 }

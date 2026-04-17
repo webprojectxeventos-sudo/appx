@@ -62,6 +62,18 @@ interface ScannerContextValue {
   pendingItems: outbox.OutboxItem[]
   flushOutbox: () => Promise<void>
   clearFailedOutbox: () => Promise<void>
+
+  // Live metrics (recompute with `now` tick every 60s)
+  metrics: {
+    /** Scans per minute over the last 5 minutes (rolling). */
+    velocityPerMin: number
+    /** Milliseconds to reach 100% at current velocity; null if velocity == 0. */
+    etaMs: number | null
+    /** Hour (0..23) with most scans today; null if no scans. */
+    peakHour: number | null
+    /** Scans per 15-minute bucket over the last 2h (oldest → newest). Length: 8. */
+    sparkline: number[]
+  }
 }
 
 const ScannerContext = createContext<ScannerContextValue | null>(null)
@@ -160,6 +172,72 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     const scanned = attendees.filter((t) => t.status === 'used').length
     return { total, scanned, pending: total - scanned }
   }, [attendees])
+
+  // `now` tick — drives rolling-window metrics. Updates every 60s so the
+  // velocity / eta / sparkline stay fresh without being expensive.
+  const [now, setNow] = useState<number>(() => Date.now())
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const metrics = useMemo(() => {
+    const fiveMinAgo = now - 5 * 60_000
+    const twoHoursAgo = now - 2 * 60 * 60_000
+    const today = new Date(now)
+    today.setHours(0, 0, 0, 0)
+    const todayStart = today.getTime()
+
+    let scansLast5Min = 0
+    const bucketCount = 8 // 2h / 15min
+    const bucketMs = 15 * 60_000
+    const buckets = new Array<number>(bucketCount).fill(0)
+    const hourCounts: Record<number, number> = {}
+
+    for (const a of attendees) {
+      if (a.status !== 'used' || !a.scanned_at) continue
+      const t = new Date(a.scanned_at).getTime()
+      if (Number.isNaN(t)) continue
+
+      if (t >= fiveMinAgo) scansLast5Min++
+
+      if (t >= twoHoursAgo && t <= now) {
+        const idx = Math.min(
+          bucketCount - 1,
+          Math.floor((t - twoHoursAgo) / bucketMs),
+        )
+        buckets[idx]++
+      }
+
+      if (t >= todayStart) {
+        const hour = new Date(t).getHours()
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1
+      }
+    }
+
+    const velocityPerMin = scansLast5Min / 5
+    const pending = stats.pending
+    const etaMs =
+      velocityPerMin > 0 && pending > 0
+        ? (pending / velocityPerMin) * 60_000
+        : null
+
+    let peakHour: number | null = null
+    let peakCount = 0
+    for (const [hStr, count] of Object.entries(hourCounts)) {
+      if (count > peakCount) {
+        peakCount = count
+        peakHour = Number(hStr)
+      }
+    }
+
+    return {
+      velocityPerMin,
+      etaMs,
+      peakHour,
+      sparkline: buckets,
+    }
+  }, [attendees, stats.pending, now])
 
   // Animated numbers
   const animTotal = useAnimatedNumber(stats.total)
@@ -428,6 +506,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       pendingItems,
       flushOutbox,
       clearFailedOutbox,
+      metrics,
     }),
     [
       serverEvents,
@@ -452,6 +531,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       pendingItems,
       flushOutbox,
       clearFailedOutbox,
+      metrics,
     ],
   )
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { QrCode, DoorOpen, Users } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { ScannerProvider, useScanner } from '@/components/scanner/scanner-provider'
 import { StatsBar } from '@/components/scanner/stats-bar'
@@ -59,9 +60,19 @@ function ScannerContent() {
       </div>
 
       {/* Active tab */}
-      {tab === 'scan' && <ScanTab />}
-      {tab === 'door' && <DoorTab />}
-      {tab === 'list' && <ListTab />}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
+          {tab === 'scan' && <ScanTab />}
+          {tab === 'door' && <DoorTab />}
+          {tab === 'list' && <ListTab />}
+        </motion.div>
+      </AnimatePresence>
     </div>
   )
 }

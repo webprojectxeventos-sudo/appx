@@ -572,6 +572,33 @@ nav {
   display: none;
 }
 
+/* ── Scanner high-visibility mode ─────────────────────── */
+
+body[data-scanner-hi-vis="true"] {
+  /* Muted text gets a contrast bump so dim venue text is readable */
+  --white-muted: #e5e5e5;
+}
+
+body[data-scanner-hi-vis="true"] .card {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+body[data-scanner-hi-vis="true"] .text-white\/30,
+body[data-scanner-hi-vis="true"] .text-white\/25,
+body[data-scanner-hi-vis="true"] .text-white\/40 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Bump stat numbers in the scanner's stats bar for one-glance readability */
+body[data-scanner-hi-vis="true"] [data-scanner-stat] {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+body[data-scanner-hi-vis="true"] .btn-primary {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 6px 20px rgba(228, 30, 43, 0.5);
+}
+
 /* ── Responsive: Desktop/Tablet ──────────────────────── */
 
 @media (min-width: 768px) {

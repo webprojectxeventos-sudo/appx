@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { useScannerHiVis } from '@/lib/hooks/use-scanner-hi-vis'
 
 // Inline SVG icons to avoid lucide-react barrel import issues in dev mode
 function ArrowLeftIcon({ className }: { className?: string }) {
@@ -31,6 +32,14 @@ function MapPinIcon({ className }: { className?: string }) {
   )
 }
 
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -41,6 +50,7 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
 
   // Tap-to-confirm logout
   const [logoutConfirm, setLogoutConfirm] = useState(false)
+  const [hiVis, toggleHiVis] = useScannerHiVis()
 
   const handleLogout = () => {
     if (!logoutConfirm) {
@@ -110,6 +120,19 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-white-muted">{profile.full_name}</span>
+            <button
+              onClick={() => toggleHiVis()}
+              className={`p-1.5 rounded-lg transition-all ${
+                hiVis
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-white-muted hover:text-white hover:bg-white/5'
+              }`}
+              title={hiVis ? 'Modo alta visibilidad activado' : 'Activar alta visibilidad'}
+              aria-label="Alternar modo alta visibilidad"
+              aria-pressed={hiVis}
+            >
+              <EyeIcon className="w-4 h-4" />
+            </button>
             <button
               onClick={handleLogout}
               className={`p-1.5 rounded-lg transition-all ${
