@@ -386,6 +386,26 @@ body {
   to   { transform: translateY(0); opacity: 1; }
 }
 
+/* Scanner scan success radial pulse — expands from center of viewfinder */
+@keyframes scan-pulse-success {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.8; }
+  70%  { transform: translate(-50%, -50%) scale(2.2); opacity: 0.15; }
+  100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }
+}
+
+@keyframes scan-pulse-error {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0.7; }
+  50%  { transform: translate(-50%, -50%) scale(1.2); opacity: 0.4; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+/* Soft bounce for hero icon entrance */
+@keyframes bounce-in {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 @keyframes bounce-subtle {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-4px); }

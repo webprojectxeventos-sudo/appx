@@ -411,6 +411,30 @@ export function ScanTab() {
       >
         <div id="qr-reader" className="w-full" />
 
+        {/* Radial pulse on scan — overlaid under the corners for a satisfying "hit" feel.
+            Keyed by flash state so it restarts on every scan. */}
+        {scanning && (flash === 'success' || flash === 'duplicate' || flash === 'error') && (
+          <div
+            key={`pulse-${flash}-${Date.now()}`}
+            className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-hidden"
+          >
+            <div
+              className={cn(
+                'absolute top-1/2 left-1/2 w-[180px] h-[180px] rounded-full',
+                flash === 'success' && 'bg-emerald-400',
+                flash === 'duplicate' && 'bg-amber-400',
+                flash === 'error' && 'bg-red-500',
+              )}
+              style={{
+                animation:
+                  flash === 'success'
+                    ? 'scan-pulse-success 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards'
+                    : 'scan-pulse-error 500ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              }}
+            />
+          </div>
+        )}
+
         {/* Viewfinder corners (visible when scanning) */}
         {scanning && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
