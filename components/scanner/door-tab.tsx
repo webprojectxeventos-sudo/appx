@@ -13,17 +13,19 @@ import { supabase } from '@/lib/supabase'
 import { useScanner } from './scanner-provider'
 import { EventDayGroups } from './event-day-groups'
 import { playBeep, haptic, formatTime } from './scanner-utils'
+import { useToast } from '@/components/ui/toast'
+import * as outbox from '@/lib/scanner-outbox'
 
 type DoorResult = {
   success: boolean
   name?: string
   promoter?: string
   error?: string
+  queued?: boolean
 }
 
 export function DoorTab() {
   const {
-    serverEvents,
     eventsByDay,
     attendees,
     loadAttendees,
@@ -31,7 +33,9 @@ export function DoorTab() {
     multipleEvents,
     eventNameMap,
     eventIds,
+    online,
   } = useScanner()
+  const toast = useToast()
 
   const [doorName, setDoorName] = useState('')
   const [doorEventId, setDoorEventId] = useState<string>('')
@@ -61,34 +65,59 @@ export function DoorTab() {
     if (!doorName.trim() || !doorEventId) return
     setDoorLoading(true)
     setDoorResult(null)
+    const name = doorName.trim()
+    const payload = {
+      name,
+      event_id: doorEventId,
+      ...(doorPromoterCode.replace(/-/g, '').length === 8 && {
+        promoter_code: doorPromoterCode,
+      }),
+    }
+
+    const handleQueued = async () => {
+      await outbox.enqueue({
+        kind: 'door-register',
+        endpoint: '/api/scanner/door-register',
+        payload,
+        label: name,
+      })
+      if (soundEnabled) playBeep(true)
+      haptic(true)
+      setDoorResult({ success: true, queued: true, name })
+      toast.warning(`${name} · registrado (pendiente sync)`)
+      setDoorName('')
+      setDoorPromoterCode('')
+      setTimeout(() => setDoorResult(null), 3000)
+    }
+
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) return
+      if (!online) {
+        await handleQueued()
+        return
+      }
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setDoorResult({ success: false, error: 'Sesion expirada' })
+        return
+      }
       const res = await fetch('/api/scanner/door-register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          name: doorName.trim(),
-          event_id: doorEventId,
-          ...(doorPromoterCode.replace(/-/g, '').length === 8 && {
-            promoter_code: doorPromoterCode,
-          }),
-        }),
+        body: JSON.stringify(payload),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
         if (soundEnabled) playBeep(true)
         haptic(true)
         setDoorResult({
           success: true,
-          name: data.user_name,
+          name: data.user_name || name,
           promoter: data.promoter_name,
         })
+        toast.success(`${data.user_name || name} registrado`)
         setDoorName('')
         setDoorPromoterCode('')
         loadAttendees()
@@ -96,12 +125,13 @@ export function DoorTab() {
       } else {
         if (soundEnabled) playBeep(false)
         haptic(false)
-        setDoorResult({ success: false, error: data.error || 'Error' })
+        const msg = data.error || 'Error'
+        setDoorResult({ success: false, error: msg })
+        toast.error(msg)
       }
     } catch {
-      if (soundEnabled) playBeep(false)
-      haptic(false)
-      setDoorResult({ success: false, error: 'Error de conexion' })
+      // Network error — queue for later
+      await handleQueued()
     } finally {
       setDoorLoading(false)
     }
@@ -206,13 +236,17 @@ export function DoorTab() {
           )}
           <div>
             <p className="text-sm font-medium text-white">
-              {doorResult.success ? `${doorResult.name} registrado` : 'Error'}
+              {doorResult.success
+                ? `${doorResult.name} registrado${doorResult.queued ? ' (offline)' : ''}`
+                : 'Error'}
             </p>
             <p className="text-[11px] text-white-muted">
               {doorResult.success
-                ? doorResult.promoter
-                  ? `Paga en puerta · Organizador: ${doorResult.promoter}`
-                  : 'Entrada en puerta confirmada'
+                ? doorResult.queued
+                  ? 'Se enviara al servidor cuando vuelva la conexion'
+                  : doorResult.promoter
+                    ? `Paga en puerta · Organizador: ${doorResult.promoter}`
+                    : 'Entrada en puerta confirmada'
                 : doorResult.error}
             </p>
           </div>

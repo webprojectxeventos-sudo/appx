@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { AuthProvider } from '@/lib/auth-context'
+import { ToastProvider } from '@/components/ui/toast'
 import { initNativePlugins } from '@/lib/capacitor'
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -10,5 +11,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     initNativePlugins()
   }, [])
 
-  return <AuthProvider>{children}</AuthProvider>
+  return (
+    <AuthProvider>
+      <ToastProvider>{children}</ToastProvider>
+    </AuthProvider>
+  )
 }

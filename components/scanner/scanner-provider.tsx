@@ -14,6 +14,9 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import type { AttendeeRow, ScannerEvent, DayGroup } from './scanner-types'
 import { useAnimatedNumber } from './scanner-utils'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import * as outbox from '@/lib/scanner-outbox'
+import { useOnlineStatus } from '@/lib/hooks/use-online-status'
 
 // ── Context shape ──────────────────────────────────────────────────────────
 
@@ -37,6 +40,8 @@ interface ScannerContextValue {
 
   // Actions
   loadAttendees: () => Promise<void>
+  /** Merge a ticket row into local state (used by scan/door actions for instant feedback). */
+  patchAttendee: (row: Partial<AttendeeRow> & { id: string }) => void
 
   // Sound
   soundEnabled: boolean
@@ -50,22 +55,40 @@ interface ScannerContextValue {
 
   // Venue name from auth context
   venueName: string
+
+  // Offline / outbox
+  online: boolean
+  pendingSyncCount: number
+  pendingItems: outbox.OutboxItem[]
+  flushOutbox: () => Promise<void>
+  clearFailedOutbox: () => Promise<void>
 }
 
 const ScannerContext = createContext<ScannerContextValue | null>(null)
+
+type TicketRow = {
+  id: string
+  user_id: string
+  event_id: string
+  qr_code: string
+  status: AttendeeRow['status']
+  scanned_at: string | null
+  created_at: string
+}
 
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function ScannerProvider({ children }: { children: ReactNode }) {
   const { venue } = useAuth()
+  const online = useOnlineStatus()
 
   // Core state
   const [serverEvents, setServerEvents] = useState<ScannerEvent[]>([])
   const [attendees, setAttendees] = useState<AttendeeRow[]>([])
-  const [stats, setStats] = useState({ total: 0, scanned: 0, pending: 0 })
   const [loadingAttendees, setLoadingAttendees] = useState(false)
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
+  const [pendingItems, setPendingItems] = useState<outbox.OutboxItem[]>([])
 
   // Refs for stale-closure safety in scanner callbacks
   const attendeesRef = useRef(attendees)
@@ -76,6 +99,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   // ── Derived data ─────────────────────────────────────────────────────────
 
   const eventIds = useMemo(() => serverEvents.map((e) => e.id), [serverEvents])
+  const eventIdsKey = useMemo(() => eventIds.join(','), [eventIds])
 
   const eventNameMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -130,6 +154,13 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     [attendees],
   )
 
+  // Stats derived from attendees (no separate setter → always consistent with list)
+  const stats = useMemo(() => {
+    const total = attendees.length
+    const scanned = attendees.filter((t) => t.status === 'used').length
+    return { total, scanned, pending: total - scanned }
+  }, [attendees])
+
   // Animated numbers
   const animTotal = useAnimatedNumber(stats.total)
   const animScanned = useAnimatedNumber(stats.scanned)
@@ -147,7 +178,22 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     soundEnabledRef.current = soundEnabled
   }, [soundEnabled])
 
-  // ── Load attendees ───────────────────────────────────────────────────────
+  // ── In-place patcher (used by realtime + local action feedback) ──────────
+
+  const patchAttendee = useCallback(
+    (row: Partial<AttendeeRow> & { id: string }) => {
+      setAttendees((prev) => {
+        const idx = prev.findIndex((a) => a.id === row.id)
+        if (idx === -1) return prev
+        const next = prev.slice()
+        next[idx] = { ...prev[idx], ...row }
+        return next
+      })
+    },
+    [],
+  )
+
+  // ── Load attendees (initial + manual refresh only) ───────────────────────
 
   const loadAttendees = useCallback(async () => {
     setLoadingAttendees(true)
@@ -174,10 +220,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       setBootstrapError(null)
       setServerEvents(data.events || [])
       setAttendees(data.attendees || [])
-      const attArr = data.attendees || []
-      const total = attArr.length
-      const scanned = attArr.filter((t) => t.status === 'used').length
-      setStats({ total, scanned, pending: total - scanned })
     } catch (err) {
       console.error('Error loading attendees:', err)
       setBootstrapError('Error de conexion')
@@ -193,10 +235,144 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     loadAttendees()
   }, [loadAttendees])
 
+  // ── Outbox: subscribe + auto-flush ───────────────────────────────────────
+
+  const refreshPending = useCallback(async () => {
+    const items = await outbox.pending()
+    setPendingItems(items)
+  }, [])
+
+  const getAuthToken = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
+  }, [])
+
+  const flushOutbox = useCallback(async () => {
+    await outbox.flush({ getAuthToken })
+    await refreshPending()
+  }, [getAuthToken, refreshPending])
+
+  const clearFailedOutbox = useCallback(async () => {
+    await outbox.clearFailed()
+    await refreshPending()
+  }, [refreshPending])
+
+  // Initial load + subscribe
+  useEffect(() => {
+    refreshPending()
+    const unsub = outbox.subscribe(() => {
+      refreshPending()
+    })
+    return unsub
+  }, [refreshPending])
+
+  // Auto-flush when online, with a periodic retry while pending items exist
+  useEffect(() => {
+    if (!online) return
+    let cancelled = false
+    const run = async () => {
+      if (cancelled) return
+      await flushOutbox()
+    }
+    run()
+    const interval = setInterval(() => {
+      if (!cancelled) run()
+    }, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [online, flushOutbox])
+
+  const pendingSyncCount = useMemo(
+    () => pendingItems.filter((i) => i.status === 'pending').length,
+    [pendingItems],
+  )
+
   // ── Realtime subscriptions ───────────────────────────────────────────────
+  //
+  // Instead of refetching the whole attendees list on every change, we apply
+  // the postgres_changes payload in-place. This cuts realtime-driven IO from
+  // O(N scanners * M tickets) per scan to O(1). On INSERT we fetch only the
+  // one user row we are missing.
 
   useEffect(() => {
     if (eventIds.length === 0) return
+
+    const applyUpdate = (newRow: TicketRow) => {
+      setAttendees((prev) => {
+        const idx = prev.findIndex((a) => a.id === newRow.id)
+        if (idx === -1) return prev
+        const next = prev.slice()
+        next[idx] = {
+          ...prev[idx],
+          qr_code: newRow.qr_code,
+          status: newRow.status,
+          scanned_at: newRow.scanned_at,
+          created_at: newRow.created_at,
+          event_id: newRow.event_id,
+          user_id: newRow.user_id,
+        }
+        return next
+      })
+    }
+
+    const applyDelete = (oldRow: Pick<TicketRow, 'id'>) => {
+      setAttendees((prev) => prev.filter((a) => a.id !== oldRow.id))
+    }
+
+    const applyInsert = async (newRow: TicketRow) => {
+      // Skip if we already have this id (e.g. we optimistically added it)
+      if (attendeesRef.current.some((a) => a.id === newRow.id)) {
+        applyUpdate(newRow)
+        return
+      }
+      // Fetch just this user's display info — 1 row instead of reloading everything
+      let user_name: string | null = null
+      let user_email = ''
+      try {
+        const { data: u } = await supabase
+          .from('users')
+          .select('full_name, email')
+          .eq('id', newRow.user_id)
+          .single()
+        if (u) {
+          user_name = u.full_name ?? null
+          user_email = u.email ?? ''
+        }
+      } catch {
+        /* use placeholder */
+      }
+      setAttendees((prev) => {
+        if (prev.some((a) => a.id === newRow.id)) return prev
+        const next: AttendeeRow = {
+          id: newRow.id,
+          user_id: newRow.user_id,
+          event_id: newRow.event_id,
+          qr_code: newRow.qr_code,
+          status: newRow.status,
+          scanned_at: newRow.scanned_at,
+          created_at: newRow.created_at,
+          user_name,
+          user_email,
+        }
+        return [next, ...prev]
+      })
+    }
+
+    const handle = (
+      payload: RealtimePostgresChangesPayload<Record<string, unknown>>,
+    ) => {
+      const eventType = payload.eventType
+      if (eventType === 'INSERT') {
+        applyInsert(payload.new as unknown as TicketRow)
+      } else if (eventType === 'UPDATE') {
+        applyUpdate(payload.new as unknown as TicketRow)
+      } else if (eventType === 'DELETE') {
+        applyDelete(payload.old as unknown as { id: string })
+      }
+    }
+
     const channels = eventIds.map((eid) =>
       supabase
         .channel(`scanner-tickets-${eid}`)
@@ -208,16 +384,18 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
             table: 'tickets',
             filter: `event_id=eq.${eid}`,
           },
-          () => {
-            loadAttendeesRef.current()
-          },
+          handle,
         )
         .subscribe(),
     )
     return () => {
       channels.forEach((ch) => supabase.removeChannel(ch))
     }
-  }, [eventIds])
+    // eventIdsKey captures the content, not the array reference, so we don't
+    // tear down and re-subscribe on every render when the events list is the
+    // same but loadAttendees returned a new array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventIdsKey])
 
   // ── Context value ────────────────────────────────────────────────────────
 
@@ -237,6 +415,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       loadingAttendees,
       bootstrapError,
       loadAttendees,
+      patchAttendee,
       soundEnabled,
       setSoundEnabled,
       attendeesRef,
@@ -244,6 +423,11 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       soundEnabledRef,
       loadAttendeesRef,
       venueName: venue?.name || '',
+      online,
+      pendingSyncCount,
+      pendingItems,
+      flushOutbox,
+      clearFailedOutbox,
     }),
     [
       serverEvents,
@@ -260,8 +444,14 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       loadingAttendees,
       bootstrapError,
       loadAttendees,
+      patchAttendee,
       soundEnabled,
       venue?.name,
+      online,
+      pendingSyncCount,
+      pendingItems,
+      flushOutbox,
+      clearFailedOutbox,
     ],
   )
 

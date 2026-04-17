@@ -2,6 +2,7 @@
 
 import { DoorOpen, XCircle, Clock } from 'lucide-react'
 import { useScanner } from './scanner-provider'
+import { PendingSyncBadge } from './pending-sync-badge'
 
 export function StatsBar() {
   const {
@@ -20,6 +21,10 @@ export function StatsBar() {
 
   return (
     <div className="space-y-3">
+      {/* Sync status strip — only renders when there is something to show */}
+      <div className="flex justify-end -mt-1">
+        <PendingSyncBadge />
+      </div>
       {/* Bootstrap error banner */}
       {bootstrapError && (
         <div className="card p-3 border-red-500/30 bg-red-500/5 flex items-center gap-2.5">

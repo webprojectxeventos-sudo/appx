@@ -1,104 +1,276 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import {
   Camera,
   CheckCircle2,
   XCircle,
   Volume2,
   VolumeX,
+  Clock,
+  Wifi,
+  WifiOff,
+  CloudUpload,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useScanner } from './scanner-provider'
-import { playBeep, haptic, formatTime } from './scanner-utils'
+import { playBeep, hapticLevel, formatTime } from './scanner-utils'
 import type { ScanResult } from './scanner-types'
+import { useToast } from '@/components/ui/toast'
+import { useOnlineStatus } from '@/lib/hooks/use-online-status'
+import * as outbox from '@/lib/scanner-outbox'
+
+type ScanKind = 'pending' | 'success' | 'duplicate' | 'error' | 'queued'
+
+interface RecentScan {
+  /** stable id used for updating log entry after server responds */
+  key: string
+  qr: string
+  kind: ScanKind
+  name: string
+  subtitle: string
+  at: number
+}
+
+const RECENT_LIMIT = 5
+const VELOCITY_WINDOW_MS = 60_000
+const HERO_MS = 3_500 // how long the most recent scan stays in "hero" mode
 
 export function ScanTab() {
   const {
-    loadAttendees,
+    patchAttendee,
     soundEnabled,
     setSoundEnabled,
     attendeesRef,
     eventNameMapRef,
     soundEnabledRef,
-    loadAttendeesRef,
   } = useScanner()
 
+  const toast = useToast()
+  const online = useOnlineStatus()
+
   const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [recent, setRecent] = useState<RecentScan[]>([])
+  const [sessionValid, setSessionValid] = useState(0)
+  const [flash, setFlash] = useState<'none' | 'pending' | 'success' | 'duplicate' | 'error'>('none')
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tick state purely to re-render the hero card as it expires
+  const [, setTick] = useState(0)
 
   // Refs
   const scannerRef = useRef<HTMLDivElement>(null)
   const html5QrRef = useRef<unknown>(null)
   const processedQRs = useRef<Set<string>>(new Set())
-  const processingRef = useRef(false)
-  const resultTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const triggerFlash = useCallback(
+    (kind: 'pending' | 'success' | 'duplicate' | 'error') => {
+      setFlash(kind)
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+      flashTimerRef.current = setTimeout(() => setFlash('none'), 600)
+    },
+    [],
+  )
+
+  // Re-render hero card every 500ms while it's active to animate fade
+  useEffect(() => {
+    if (recent.length === 0) return
+    const first = recent[0]
+    const elapsed = Date.now() - first.at
+    if (elapsed >= HERO_MS) return
+    const t = setInterval(() => setTick((n) => n + 1), 500)
+    return () => clearInterval(t)
+  }, [recent])
+
+  // ── Recent log helpers ──────────────────────────────────────────────────
+
+  const addPending = useCallback((qr: string, name: string, subtitle: string): string => {
+    const key = `rec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    setRecent((prev) =>
+      [
+        { key, qr, kind: 'pending' as const, name, subtitle, at: Date.now() },
+        ...prev,
+      ].slice(0, RECENT_LIMIT),
+    )
+    return key
+  }, [])
+
+  const finalizeRecent = useCallback(
+    (key: string, patch: Partial<RecentScan>) => {
+      setRecent((prev) =>
+        prev.map((r) => (r.key === key ? { ...r, ...patch, at: Date.now() } : r)),
+      )
+    },
+    [],
+  )
+
+  // Velocity: scans per minute based on confirmed entries in last 60s
+  const velocity = useMemo(() => {
+    const now = Date.now()
+    return recent.filter(
+      (r) => (r.kind === 'success' || r.kind === 'queued') && now - r.at < VELOCITY_WINDOW_MS,
+    ).length
+  }, [recent])
 
   // ── Scan logic ────────────────────────────────────────────────────────────
 
-  const processScan = useCallback(async (qrCode: string) => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) {
-        setScanResult({ success: false, error: 'Sesion expirada' })
-        return
-      }
-      const res = await fetch('/api/scanner/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ ticket_qr: qrCode }),
-      })
+  const processScan = useCallback(
+    async (qrCode: string) => {
+      const localMatch = attendeesRef.current.find((a) => a.qr_code === qrCode)
+      const displayName = localMatch?.user_name || 'Procesando...'
+      const displayEvent =
+        (localMatch && eventNameMapRef.current[localMatch.event_id]) || ''
 
-      let result: ScanResult
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}))
-        result = { success: false, error: errBody.error || `HTTP ${res.status}` }
-      } else {
-        result = await res.json()
-      }
+      // ── Instant optimistic feedback (< 20ms) ────────────────────────────
+      const recentKey = addPending(qrCode, displayName, displayEvent || 'Validando...')
+      triggerFlash('pending')
+      hapticLevel('duplicate') // light haptic on detection — confirms QR was seen
 
-      // Enrich duplicate scan with local data
-      if (!result.success && result.error?.includes('escaneado')) {
-        const att = attendeesRef.current.find((a) => a.qr_code === qrCode)
-        if (att) {
-          result.user_name = att.user_name || undefined
-          result.event_title = eventNameMapRef.current[att.event_id]
-          result.scanned_at = att.scanned_at || undefined
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          triggerFlash('error')
+          if (soundEnabledRef.current) playBeep(false)
+          hapticLevel('error')
+          toast.error('Sesion expirada — vuelve a iniciar sesion')
+          finalizeRecent(recentKey, { kind: 'error', name: 'Sesion expirada', subtitle: '' })
+          return
         }
+
+        if (!online) {
+          await outbox.enqueue({
+            kind: 'scan',
+            endpoint: '/api/scanner/scan',
+            payload: { ticket_qr: qrCode },
+            label: displayName,
+          })
+          if (localMatch) {
+            patchAttendee({
+              id: localMatch.id,
+              status: 'used',
+              scanned_at: new Date().toISOString(),
+            })
+          }
+          triggerFlash('success')
+          if (soundEnabledRef.current) playBeep(true)
+          hapticLevel('success')
+          setSessionValid((v) => v + 1)
+          finalizeRecent(recentKey, {
+            kind: 'queued',
+            name: displayName,
+            subtitle: displayEvent || 'Offline · se enviara luego',
+          })
+          return
+        }
+
+        const res = await fetch('/api/scanner/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ ticket_qr: qrCode }),
+        })
+
+        let result: ScanResult
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          result = { success: false, error: errBody.error || `HTTP ${res.status}` }
+        } else {
+          result = await res.json()
+        }
+
+        // Enrich duplicate scan with local data for nicer feedback
+        if (!result.success && result.error?.includes('escaneado') && localMatch) {
+          result.user_name = localMatch.user_name || undefined
+          result.event_title = eventNameMapRef.current[localMatch.event_id]
+          result.scanned_at = localMatch.scanned_at || undefined
+        }
+
+        if (result.success) {
+          triggerFlash('success')
+          if (soundEnabledRef.current) playBeep(true)
+          hapticLevel('success')
+          setSessionValid((v) => v + 1)
+          const name = result.user_name || displayName
+          finalizeRecent(recentKey, {
+            kind: 'success',
+            name,
+            subtitle: result.event_title || displayEvent || 'Validado',
+          })
+          // Patch local state so UI updates before realtime arrives
+          if (localMatch) {
+            patchAttendee({
+              id: localMatch.id,
+              status: 'used',
+              scanned_at: new Date().toISOString(),
+            })
+          }
+        } else if (result.error?.includes('escaneado')) {
+          // Duplicate — softer feedback
+          triggerFlash('duplicate')
+          if (soundEnabledRef.current) playBeep(false)
+          hapticLevel('duplicate')
+          const name = result.user_name || displayName
+          const when = result.scanned_at ? ` a las ${formatTime(result.scanned_at)}` : ''
+          finalizeRecent(recentKey, {
+            kind: 'duplicate',
+            name,
+            subtitle: `Ya entro${when}`,
+          })
+        } else {
+          triggerFlash('error')
+          if (soundEnabledRef.current) playBeep(false)
+          hapticLevel('error')
+          toast.error(result.error || 'Error al validar')
+          finalizeRecent(recentKey, {
+            kind: 'error',
+            name: 'Error',
+            subtitle: result.error || '',
+          })
+        }
+      } catch {
+        // Network error mid-request — queue for later
+        if (soundEnabledRef.current) playBeep(true)
+        hapticLevel('success')
+        triggerFlash('success')
+        await outbox.enqueue({
+          kind: 'scan',
+          endpoint: '/api/scanner/scan',
+          payload: { ticket_qr: qrCode },
+          label: displayName,
+        })
+        if (localMatch) {
+          patchAttendee({
+            id: localMatch.id,
+            status: 'used',
+            scanned_at: new Date().toISOString(),
+          })
+        }
+        setSessionValid((v) => v + 1)
+        finalizeRecent(recentKey, {
+          kind: 'queued',
+          name: displayName,
+          subtitle: 'Sin red — encolado',
+        })
       }
+    },
+    [
+      online,
+      toast,
+      patchAttendee,
+      addPending,
+      finalizeRecent,
+      triggerFlash,
+      attendeesRef,
+      eventNameMapRef,
+      soundEnabledRef,
+    ],
+  )
 
-      if (soundEnabledRef.current) playBeep(result.success)
-      haptic(result.success)
-
-      setScanResult(result)
-      if (result.success) loadAttendeesRef.current()
-
-      // Auto-dismiss overlay (continuous mode)
-      if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current)
-      resultTimeoutRef.current = setTimeout(() => {
-        setScanResult(null)
-        processingRef.current = false
-      }, 2500)
-    } catch {
-      if (soundEnabledRef.current) playBeep(false)
-      haptic(false)
-      setScanResult({ success: false, error: 'Error de conexion' })
-      if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current)
-      resultTimeoutRef.current = setTimeout(() => {
-        setScanResult(null)
-        processingRef.current = false
-      }, 2500)
-    }
-  }, [attendeesRef, eventNameMapRef, soundEnabledRef, loadAttendeesRef])
-
-  // Keep ref for scanner callback
+  // Ref keeps processScan current across scanner callback lifetime
   const processScanRef = useRef(processScan)
   useEffect(() => {
     processScanRef.current = processScan
@@ -106,13 +278,10 @@ export function ScanTab() {
 
   const startScanner = useCallback(async () => {
     if (!scannerRef.current || scanning) return
-    setScanResult(null)
     setCameraError(null)
     setScanning(true)
     processedQRs.current.clear()
-    processingRef.current = false
 
-    // Guard: browsers / webviews that don't expose getUserMedia
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       setScanning(false)
       setCameraError('Tu dispositivo no soporta el escaner de camara.')
@@ -126,15 +295,17 @@ export function ScanTab() {
 
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        // fps 20 (was 10): faster detection of fast-swiped QRs
+        // qrbox slightly larger: more forgiving aim
+        { fps: 20, qrbox: { width: 280, height: 280 } },
         async (decodedText) => {
+          // Skip only if this same QR was just processed — different QRs go
+          // through concurrently to keep the line moving.
           if (processedQRs.current.has(decodedText)) return
-          if (processingRef.current) return
-          processingRef.current = true
           processedQRs.current.add(decodedText)
-          processScanRef.current(decodedText)
           // Allow re-scan of same QR after 10s
           setTimeout(() => processedQRs.current.delete(decodedText), 10_000)
+          processScanRef.current(decodedText)
         },
         () => {},
       )
@@ -144,19 +315,13 @@ export function ScanTab() {
       const raw = err instanceof Error ? err.message : String(err ?? '')
       const name = err instanceof Error ? err.name : ''
       if (name === 'NotAllowedError' || /denied|permiso|permission/i.test(raw)) {
-        setCameraError(
-          'Permite el acceso a la camara en Ajustes > Project X para usar el escaner.',
-        )
+        setCameraError('Permite el acceso a la camara en Ajustes > Project X para usar el escaner.')
       } else if (name === 'NotFoundError' || /no camera|device not found/i.test(raw)) {
         setCameraError('No se detecto ninguna camara en este dispositivo.')
       } else if (name === 'NotReadableError' || /in use|hardware/i.test(raw)) {
-        setCameraError(
-          'La camara esta siendo usada por otra aplicacion. Cierrala e intentalo de nuevo.',
-        )
+        setCameraError('La camara esta siendo usada por otra aplicacion. Cierrala e intentalo de nuevo.')
       } else {
-        setCameraError(
-          'No se pudo iniciar el escaner. Cierra y vuelve a abrir la app, o revisa los permisos de camara.',
-        )
+        setCameraError('No se pudo iniciar el escaner. Cierra y vuelve a abrir la app, o revisa los permisos de camara.')
       }
     }
   }, [scanning])
@@ -171,79 +336,121 @@ export function ScanTab() {
       html5QrRef.current = null
     }
     setScanning(false)
-    if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current)
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+    setFlash('none')
   }, [])
 
   // Stop scanner on unmount
   useEffect(() => () => { stopScanner() }, [stopScanner])
 
+  // ── Hero card: the most recent scan, shown prominently for HERO_MS ─────
+
+  const hero = useMemo(() => {
+    if (recent.length === 0) return null
+    const r = recent[0]
+    if (Date.now() - r.at > HERO_MS) return null
+    return r
+  }, [recent])
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-3">
-      {/* Camera + overlay */}
+      {/* Camera + overlays */}
       <div
         ref={scannerRef}
-        className="relative rounded-2xl overflow-hidden bg-black-card border border-black-border"
-        style={{ minHeight: '300px' }}
+        className={cn(
+          'relative rounded-2xl overflow-hidden bg-black-card border transition-colors duration-300',
+          flash === 'success' && 'border-emerald-400/70 shadow-[0_0_0_3px_rgba(52,211,153,0.35)]',
+          flash === 'duplicate' && 'border-amber-400/70 shadow-[0_0_0_3px_rgba(251,191,36,0.25)]',
+          flash === 'error' && 'border-red-400/70 shadow-[0_0_0_3px_rgba(248,113,113,0.3)]',
+          flash === 'pending' && 'border-primary/60',
+          flash === 'none' && 'border-black-border',
+        )}
+        style={{ minHeight: '320px' }}
       >
         <div id="qr-reader" className="w-full" />
 
         {/* Viewfinder corners (visible when scanning) */}
-        {scanning && !scanResult && (
+        {scanning && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="relative w-[250px] h-[250px]">
-              {/* Top-left */}
-              <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl" />
-              {/* Top-right */}
-              <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr" />
-              {/* Bottom-left */}
-              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl" />
-              {/* Bottom-right */}
-              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br" />
+            <div
+              className={cn(
+                'relative w-[280px] h-[280px] transition-transform duration-200',
+                flash === 'success' && 'scale-[1.02]',
+                flash === 'error' && 'scale-[0.98]',
+              )}
+            >
+              <div
+                className={cn(
+                  'absolute top-0 left-0 w-7 h-7 border-t-2 border-l-2 rounded-tl transition-colors duration-200',
+                  flashCorner(flash),
+                )}
+              />
+              <div
+                className={cn(
+                  'absolute top-0 right-0 w-7 h-7 border-t-2 border-r-2 rounded-tr transition-colors duration-200',
+                  flashCorner(flash),
+                )}
+              />
+              <div
+                className={cn(
+                  'absolute bottom-0 left-0 w-7 h-7 border-b-2 border-l-2 rounded-bl transition-colors duration-200',
+                  flashCorner(flash),
+                )}
+              />
+              <div
+                className={cn(
+                  'absolute bottom-0 right-0 w-7 h-7 border-b-2 border-r-2 rounded-br transition-colors duration-200',
+                  flashCorner(flash),
+                )}
+              />
             </div>
           </div>
         )}
 
         {/* Idle state */}
-        {!scanning && !scanResult && (
+        {!scanning && (
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <Camera className="w-12 h-12 text-white-muted mb-3" />
             <p className="text-white-muted text-sm">Pulsa para escanear</p>
           </div>
         )}
 
-        {/* Continuous scan result overlay */}
-        {scanning && scanResult && (
+        {/* Floating counter (session) */}
+        {scanning && (
+          <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-[11px] font-bold text-white tabular-nums">{sessionValid}</span>
+            <span className="text-[10px] text-white/40">validados</span>
+            {velocity > 0 && (
+              <>
+                <span className="text-white/20">·</span>
+                <span className="text-[11px] font-bold text-primary tabular-nums">{velocity}</span>
+                <span className="text-[10px] text-white/40">/min</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Online/offline indicator */}
+        {scanning && (
           <div
             className={cn(
-              'absolute bottom-0 left-0 right-0 p-3.5 flex items-center gap-3 backdrop-blur-xl',
-              scanResult.success ? 'bg-emerald-600/90' : 'bg-red-600/90',
+              'absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-sm border text-[10px] font-medium',
+              online
+                ? 'bg-black/60 border-white/10 text-white/50'
+                : 'bg-amber-500/20 border-amber-500/30 text-amber-300',
             )}
-            style={{ animation: 'slideUp 0.2s ease-out' }}
           >
-            {scanResult.success ? (
-              <CheckCircle2 className="w-8 h-8 text-white flex-shrink-0" />
-            ) : (
-              <XCircle className="w-8 h-8 text-white flex-shrink-0" />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="font-bold text-white text-sm truncate">
-                {scanResult.success
-                  ? scanResult.user_name || 'Entrada OK'
-                  : scanResult.error?.includes('escaneado')
-                    ? scanResult.user_name || 'Ya escaneado'
-                    : 'Error'}
-              </p>
-              <p className="text-white/80 text-xs truncate">
-                {scanResult.success
-                  ? scanResult.event_title || 'Validado'
-                  : scanResult.error?.includes('escaneado')
-                    ? `Ya entro${scanResult.scanned_at ? ' a las ' + formatTime(scanResult.scanned_at) : ''}`
-                    : scanResult.error}
-              </p>
-            </div>
+            {online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {online ? 'En linea' : 'Offline'}
           </div>
+        )}
+
+        {/* Hero card overlay — prominent feedback over the bottom of the camera */}
+        {scanning && hero && (
+          <HeroCard scan={hero} />
         )}
       </div>
 
@@ -267,14 +474,33 @@ export function ScanTab() {
               ? 'border-primary/30 bg-primary/10 text-primary'
               : 'border-black-border bg-white/5 text-white-muted',
           )}
+          aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
         >
-          {soundEnabled ? (
-            <Volume2 className="w-4 h-4" />
-          ) : (
-            <VolumeX className="w-4 h-4" />
-          )}
+          {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
         </button>
       </div>
+
+      {/* Recent scans log */}
+      {recent.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-wider text-white/30 font-medium">
+              Ultimos escaneos
+            </p>
+            <button
+              onClick={() => setRecent([])}
+              className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
+            >
+              Limpiar
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {recent.map((r) => (
+              <RecentRow key={r.key} scan={r} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Camera error banner */}
       {cameraError && (
@@ -294,62 +520,144 @@ export function ScanTab() {
           </div>
         </div>
       )}
-
-      {/* Non-continuous scan result (when scanner is stopped) */}
-      {!scanning && scanResult && (
-        <div
-          className={cn(
-            'card p-5 text-center',
-            scanResult.success ? 'border-emerald-500/30' : 'border-red-500/30',
-          )}
-        >
-          <div
-            className={cn(
-              'w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center',
-              scanResult.success ? 'bg-emerald-500/15' : 'bg-red-500/15',
-            )}
-          >
-            {scanResult.success ? (
-              <CheckCircle2 className="w-7 h-7 text-emerald-400" />
-            ) : (
-              <XCircle className="w-7 h-7 text-red-400" />
-            )}
-          </div>
-          {scanResult.success ? (
-            <>
-              <h3 className="text-lg font-bold text-white">{scanResult.user_name}</h3>
-              <p className="text-white-muted text-sm mt-1">Entrada validada</p>
-              {scanResult.event_title && (
-                <p className="text-[11px] text-white/30 mt-0.5">{scanResult.event_title}</p>
-              )}
-            </>
-          ) : (
-            <>
-              <h3 className="text-lg font-bold text-red-400">
-                {scanResult.error?.includes('escaneado') ? 'Ya escaneado' : 'Error'}
-              </h3>
-              <p className="text-white-muted text-sm mt-1">
-                {scanResult.error?.includes('escaneado') && scanResult.user_name
-                  ? `${scanResult.user_name} ya entro${scanResult.scanned_at ? ' a las ' + formatTime(scanResult.scanned_at) : ''}`
-                  : scanResult.error}
-              </p>
-              {scanResult.event_title && (
-                <p className="text-[11px] text-white/30 mt-0.5">{scanResult.event_title}</p>
-              )}
-            </>
-          )}
-          <button
-            onClick={() => {
-              setScanResult(null)
-              startScanner()
-            }}
-            className="btn-primary w-full mt-4 py-3"
-          >
-            Escanear otro
-          </button>
-        </div>
-      )}
-
     </div>
   )
+}
+
+// ── Hero card ──────────────────────────────────────────────────────────────
+
+function HeroCard({ scan }: { scan: RecentScan }) {
+  const style = STYLE_BY_KIND[scan.kind]
+  const Icon = style.icon
+  return (
+    <div
+      className={cn(
+        'absolute left-3 right-3 bottom-3 p-3 rounded-xl border backdrop-blur-xl flex items-center gap-3 transition-all',
+        style.heroBg,
+        style.heroBorder,
+      )}
+      style={{ animation: 'slideUp 0.18s ease-out' }}
+    >
+      <div
+        className={cn(
+          'w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0',
+          style.iconBg,
+        )}
+      >
+        {scan.kind === 'pending' ? (
+          <Loader2 className={cn('w-5 h-5 animate-spin', style.iconColor)} />
+        ) : (
+          <Icon className={cn('w-6 h-6', style.iconColor)} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-base font-bold text-white truncate leading-tight">
+          {scan.name}
+        </p>
+        <p className="text-[11px] text-white/70 truncate">{scan.subtitle}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Recent row ─────────────────────────────────────────────────────────────
+
+function RecentRow({ scan }: { scan: RecentScan }) {
+  const style = STYLE_BY_KIND[scan.kind]
+  const Icon = style.icon
+  return (
+    <div
+      className={cn(
+        'card p-2.5 flex items-center gap-2.5 transition-colors',
+        style.border,
+      )}
+    >
+      <div
+        className={cn(
+          'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0',
+          style.iconBg,
+        )}
+      >
+        {scan.kind === 'pending' ? (
+          <Loader2 className={cn('w-3.5 h-3.5 animate-spin', style.iconColor)} />
+        ) : (
+          <Icon className={cn('w-3.5 h-3.5', style.iconColor)} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-white truncate">{scan.name}</p>
+        <p className="text-[10px] text-white/40 truncate">{scan.subtitle}</p>
+      </div>
+      <span className="text-[10px] text-white/30 tabular-nums flex items-center gap-1">
+        <Clock className="w-2.5 h-2.5" />
+        {new Date(scan.at).toLocaleTimeString('es-ES', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </span>
+    </div>
+  )
+}
+
+// ── Style map ─────────────────────────────────────────────────────────────
+
+function flashCorner(flash: 'none' | 'pending' | 'success' | 'duplicate' | 'error'): string {
+  if (flash === 'success') return 'border-emerald-400'
+  if (flash === 'duplicate') return 'border-amber-400'
+  if (flash === 'error') return 'border-red-400'
+  if (flash === 'pending') return 'border-primary'
+  return 'border-primary'
+}
+
+const STYLE_BY_KIND: Record<
+  ScanKind,
+  {
+    icon: typeof CheckCircle2
+    iconColor: string
+    iconBg: string
+    border: string
+    heroBg: string
+    heroBorder: string
+  }
+> = {
+  pending: {
+    icon: Loader2,
+    iconColor: 'text-primary',
+    iconBg: 'bg-primary/15',
+    border: 'border-primary/20',
+    heroBg: 'bg-black/70',
+    heroBorder: 'border-primary/40',
+  },
+  success: {
+    icon: CheckCircle2,
+    iconColor: 'text-emerald-400',
+    iconBg: 'bg-emerald-500/20',
+    border: 'border-emerald-500/25',
+    heroBg: 'bg-emerald-900/70',
+    heroBorder: 'border-emerald-400/60',
+  },
+  duplicate: {
+    icon: Clock,
+    iconColor: 'text-amber-300',
+    iconBg: 'bg-amber-500/20',
+    border: 'border-amber-500/25',
+    heroBg: 'bg-amber-900/70',
+    heroBorder: 'border-amber-400/50',
+  },
+  error: {
+    icon: XCircle,
+    iconColor: 'text-red-300',
+    iconBg: 'bg-red-500/20',
+    border: 'border-red-500/25',
+    heroBg: 'bg-red-900/70',
+    heroBorder: 'border-red-400/60',
+  },
+  queued: {
+    icon: CloudUpload,
+    iconColor: 'text-amber-300',
+    iconBg: 'bg-amber-500/20',
+    border: 'border-amber-500/25',
+    heroBg: 'bg-amber-900/70',
+    heroBorder: 'border-amber-400/50',
+  },
 }

@@ -24,10 +24,68 @@ export function playBeep(success: boolean) {
   }
 }
 
-/** Trigger device vibration — short pulse on success, double tap on error */
+/**
+ * Trigger device vibration — short pulse on success, double tap on error.
+ * Uses @capacitor/haptics when on native (iOS/Android), navigator.vibrate on web.
+ */
 export function haptic(success: boolean) {
+  // Fire and forget — don't block the scanner on haptic completion.
+  runHaptic(success).catch(() => {
+    /* ignore */
+  })
+}
+
+async function runHaptic(success: boolean) {
   try {
-    navigator.vibrate?.(success ? [100] : [80, 50, 80])
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { Haptics, ImpactStyle, NotificationType } = await import(
+        '@capacitor/haptics'
+      )
+      if (success) {
+        await Haptics.impact({ style: ImpactStyle.Medium })
+      } else {
+        await Haptics.notification({ type: NotificationType.Error })
+      }
+      return
+    }
+  } catch {
+    /* fall through to web vibrate */
+  }
+  try {
+    navigator.vibrate?.(success ? [80] : [60, 40, 60])
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Richer 3-level haptic used by inline scanner: ok / duplicate / error */
+export type HapticKind = 'success' | 'duplicate' | 'error'
+export function hapticLevel(kind: HapticKind) {
+  runHapticLevel(kind).catch(() => {
+    /* ignore */
+  })
+}
+
+async function runHapticLevel(kind: HapticKind) {
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { Haptics, ImpactStyle, NotificationType } = await import(
+        '@capacitor/haptics'
+      )
+      if (kind === 'success') await Haptics.impact({ style: ImpactStyle.Medium })
+      else if (kind === 'duplicate') await Haptics.impact({ style: ImpactStyle.Light })
+      else await Haptics.notification({ type: NotificationType.Error })
+      return
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    if (kind === 'success') navigator.vibrate?.([80])
+    else if (kind === 'duplicate') navigator.vibrate?.([40, 30, 40])
+    else navigator.vibrate?.([60, 40, 60, 40, 60])
   } catch {
     /* ignore */
   }

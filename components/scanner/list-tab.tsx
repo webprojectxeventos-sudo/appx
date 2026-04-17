@@ -20,6 +20,8 @@ import { supabase } from '@/lib/supabase'
 import { useScanner } from './scanner-provider'
 import { EventDayGroups } from './event-day-groups'
 import { playBeep, haptic, formatTime } from './scanner-utils'
+import { useToast } from '@/components/ui/toast'
+import * as outbox from '@/lib/scanner-outbox'
 import type { ScanResult } from './scanner-types'
 
 const INITIAL_VISIBLE = 50
@@ -37,7 +39,10 @@ export function ListTab() {
     multipleEvents,
     soundEnabled,
     venueName,
+    online,
+    patchAttendee,
   } = useScanner()
+  const toast = useToast()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'inside' | 'pending'>('all')
@@ -71,12 +76,37 @@ export function ListTab() {
 
   // ── Manual check-in ──────────────────────────────────────────────────────
 
-  const manualCheckIn = async (_ticketId: string, qrCode: string) => {
+  const manualCheckIn = async (ticketId: string, qrCode: string) => {
+    const ticket = attendees.find((a) => a.id === ticketId)
+    const name = ticket?.user_name || 'Asistente'
+
+    const queue = async () => {
+      await outbox.enqueue({
+        kind: 'scan',
+        endpoint: '/api/scanner/scan',
+        payload: { ticket_qr: qrCode },
+        label: name,
+      })
+      patchAttendee({
+        id: ticketId,
+        status: 'used',
+        scanned_at: new Date().toISOString(),
+      })
+      if (soundEnabled) playBeep(true)
+      haptic(true)
+      toast.warning(`${name} · check-in pendiente sync`)
+    }
+
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) return
+      if (!online) {
+        await queue()
+        return
+      }
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error('Sesion expirada')
+        return
+      }
       const res = await fetch('/api/scanner/scan', {
         method: 'POST',
         headers: {
@@ -88,26 +118,58 @@ export function ListTab() {
       if (!res.ok) {
         if (soundEnabled) playBeep(false)
         haptic(false)
+        const errBody = await res.json().catch(() => ({}))
+        toast.error(errBody.error || `Error ${res.status}`)
         return
       }
       const result: ScanResult = await res.json()
       if (soundEnabled) playBeep(result.success)
       haptic(result.success)
-      loadAttendees()
+      if (result.success) {
+        patchAttendee({
+          id: ticketId,
+          status: 'used',
+          scanned_at: new Date().toISOString(),
+        })
+        toast.success(`${name} · validado`)
+      } else if (result.error?.includes('escaneado')) {
+        toast.warning(`${name} · ya escaneado`)
+      } else {
+        toast.error(result.error || 'Error')
+      }
     } catch {
-      if (soundEnabled) playBeep(false)
-      haptic(false)
+      await queue()
     }
   }
 
   // ── Undo scan ────────────────────────────────────────────────────────────
 
   const undoScan = async (ticketId: string) => {
+    const ticket = attendees.find((a) => a.id === ticketId)
+    const name = ticket?.user_name || 'Asistente'
+
+    const queue = async () => {
+      await outbox.enqueue({
+        kind: 'undo',
+        endpoint: '/api/scanner/undo',
+        payload: { ticket_id: ticketId },
+        label: name,
+      })
+      patchAttendee({ id: ticketId, status: 'valid', scanned_at: null })
+      haptic(true)
+      toast.warning(`${name} · undo pendiente sync`)
+    }
+
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) return
+      if (!online) {
+        await queue()
+        return
+      }
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error('Sesion expirada')
+        return
+      }
       const res = await fetch('/api/scanner/undo', {
         method: 'POST',
         headers: {
@@ -117,11 +179,16 @@ export function ListTab() {
         body: JSON.stringify({ ticket_id: ticketId }),
       })
       if (res.ok) {
+        patchAttendee({ id: ticketId, status: 'valid', scanned_at: null })
         haptic(true)
-        loadAttendees()
+        toast.info(`${name} · deshecho`)
+      } else {
+        haptic(false)
+        const errBody = await res.json().catch(() => ({}))
+        toast.error(errBody.error || 'No se pudo deshacer')
       }
     } catch {
-      /* */
+      await queue()
     }
   }
 
