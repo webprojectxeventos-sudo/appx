@@ -91,7 +91,15 @@ async function runHapticLevel(kind: HapticKind) {
   }
 }
 
-/** Animate a number with ease-out cubic easing */
+/** Animate a number with ease-out cubic easing.
+ *
+ * Self-correcting for hidden/backgrounded pages: when `document.hidden` is
+ * true, browsers pause `requestAnimationFrame`. If we relied only on rAF
+ * the displayed number would be stuck at the starting value until the user
+ * focused the tab — so when the page is hidden we skip the animation and
+ * snap to the final value. We also register a `visibilitychange` listener
+ * so the number jumps to truth the moment the tab becomes visible again.
+ */
 export function useAnimatedNumber(value: number, duration = 400) {
   const [display, setDisplay] = useState(value)
   const prev = useRef(value)
@@ -103,15 +111,42 @@ export function useAnimatedNumber(value: number, duration = 400) {
       setDisplay(value)
       return
     }
+
+    // If the tab is hidden, rAF will not fire — jump straight to the target.
+    if (typeof document !== 'undefined' && document.hidden) {
+      setDisplay(value)
+      return
+    }
+
     const start = performance.now()
+    let raf = 0
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1)
       const eased = 1 - Math.pow(1 - p, 3)
       setDisplay(Math.round(from + (value - from) * eased))
-      if (p < 1) requestAnimationFrame(tick)
+      if (p < 1) raf = requestAnimationFrame(tick)
     }
-    requestAnimationFrame(tick)
+    raf = requestAnimationFrame(tick)
+
+    // Safety net: even if rAF stalls, force the final value after the
+    // animation window so stats are never stuck at stale numbers.
+    const safety = window.setTimeout(() => setDisplay(value), duration + 120)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(safety)
+    }
   }, [value, duration])
+
+  // When the tab becomes visible, snap to the latest truth immediately.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onVisible = () => {
+      if (!document.hidden) setDisplay(prev.current)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
 
   return display
 }
