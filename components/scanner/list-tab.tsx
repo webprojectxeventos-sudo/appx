@@ -30,7 +30,11 @@ const LOAD_MORE_STEP = 50
 
 export function ListTab() {
   const {
-    attendees,
+    // filteredAttendees respects the global per-event selector; the full
+    // `attendees` is only needed for the cross-event export summary.
+    attendees: allAttendees,
+    filteredAttendees,
+    selectedEventId,
     loadAttendees,
     loadingAttendees,
     eventNameMap,
@@ -43,6 +47,8 @@ export function ListTab() {
     online,
     patchAttendee,
   } = useScanner()
+  // Within the list, "attendees" always means the filtered (scoped) set.
+  const attendees = filteredAttendees
   const toast = useToast()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -56,7 +62,9 @@ export function ListTab() {
 
   // ── Filters ──────────────────────────────────────────────────────────────
 
-  const filteredAttendees = useMemo(() => {
+  // "searchedAttendees" = the provider-filtered set (scoped to selected event)
+  // further narrowed by the in-tab search, status, and group filters.
+  const searchedAttendees = useMemo(() => {
     const trimmed = searchQuery.trim()
     if (!trimmed && statusFilter === 'all' && groupFilter === 'all') {
       return attendees
@@ -85,10 +93,10 @@ export function ListTab() {
 
   // Reset visible count when filters change
   const visibleAttendees = useMemo(
-    () => filteredAttendees.slice(0, visibleCount),
-    [filteredAttendees, visibleCount],
+    () => searchedAttendees.slice(0, visibleCount),
+    [searchedAttendees, visibleCount],
   )
-  const hasMore = filteredAttendees.length > visibleCount
+  const hasMore = searchedAttendees.length > visibleCount
 
   // ── Manual check-in ──────────────────────────────────────────────────────
 
@@ -211,8 +219,8 @@ export function ListTab() {
   // ── Keyboard shortcuts (desktop / external keyboard only) ───────────────
 
   const visibleIds = useMemo(
-    () => filteredAttendees.slice(0, visibleCount).map((a) => a.id),
-    [filteredAttendees, visibleCount],
+    () => searchedAttendees.slice(0, visibleCount).map((a) => a.id),
+    [searchedAttendees, visibleCount],
   )
 
   // Reset highlight when the visible set changes out from under it
@@ -367,9 +375,9 @@ export function ListTab() {
             if (e.key === 'Escape') {
               setSearchQuery('')
               searchInputRef.current?.blur()
-            } else if (e.key === 'Enter' && filteredAttendees.length > 0) {
+            } else if (e.key === 'Enter' && searchedAttendees.length > 0) {
               e.preventDefault()
-              const first = filteredAttendees[0]
+              const first = searchedAttendees[0]
               setHighlightedId(first.id)
               if (first.status !== 'used') {
                 manualCheckIn(first.id, first.qr_code)
@@ -456,7 +464,7 @@ export function ListTab() {
       {/* Filtered count */}
       {(statusFilter !== 'all' || groupFilter !== 'all' || searchQuery) && (
         <p className="text-[11px] text-white/30 text-center">
-          {filteredAttendees.length} de {attendees.length} asistentes
+          {searchedAttendees.length} de {attendees.length} asistentes
         </p>
       )}
 
@@ -540,12 +548,12 @@ export function ListTab() {
             onClick={() => setVisibleCount((c) => c + LOAD_MORE_STEP)}
             className="w-full py-3 text-center text-xs text-white-muted bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
           >
-            Mostrar mas ({filteredAttendees.length - visibleCount} restantes)
+            Mostrar mas ({searchedAttendees.length - visibleCount} restantes)
           </button>
         )}
 
         {/* Empty state */}
-        {filteredAttendees.length === 0 && (
+        {searchedAttendees.length === 0 && (
           <div className="text-center py-8">
             <Users className="w-8 h-8 text-white-muted mx-auto mb-2" />
             <p className="text-white-muted text-sm">

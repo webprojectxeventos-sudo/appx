@@ -27,7 +27,10 @@ type DoorResult = {
 export function DoorTab() {
   const {
     eventsByDay,
-    attendees,
+    // Use filteredAttendees so the "recent entries" + door count respect
+    // the global per-event selector.
+    filteredAttendees: attendees,
+    selectedEventId,
     loadAttendees,
     soundEnabled,
     multipleEvents,
@@ -39,6 +42,13 @@ export function DoorTab() {
 
   const [doorName, setDoorName] = useState('')
   const [doorEventId, setDoorEventId] = useState<string>('')
+
+  // If the user selected a specific event globally, auto-sync the door form to
+  // register in that same event (avoids mismatch between what they're viewing
+  // and what they're registering).
+  useEffect(() => {
+    if (selectedEventId !== 'all') setDoorEventId(selectedEventId)
+  }, [selectedEventId])
   const [doorPromoterCode, setDoorPromoterCode] = useState('')
   const [doorLoading, setDoorLoading] = useState(false)
   const [doorResult, setDoorResult] = useState<DoorResult | null>(null)

@@ -386,6 +386,16 @@ body {
   to   { transform: translateY(0); opacity: 1; }
 }
 
+/* Hide horizontal scrollbar on elements that rely on overflow-x-auto
+   (used by the scanner event-scope selector rail). */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Scanner scan success radial pulse — expands from center of viewfinder */
 @keyframes scan-pulse-success {
   0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.8; }

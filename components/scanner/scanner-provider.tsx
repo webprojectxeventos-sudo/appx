@@ -38,6 +38,14 @@ interface ScannerContextValue {
   loadingAttendees: boolean
   bootstrapError: string | null
 
+  // Per-event focus — 'all' means show everything at the venue, else only that event's tickets.
+  // Stats, doorCount, and metrics all respect the selection so the scanner page can show
+  // meaningful per-event data instead of mixing everything together.
+  selectedEventId: string | 'all'
+  setSelectedEventId: (id: string | 'all') => void
+  /** Filtered set: either all attendees (when selectedEventId==='all') or just the picked event. */
+  filteredAttendees: AttendeeRow[]
+
   // Actions
   loadAttendees: () => Promise<void>
   /** Merge a ticket row into local state (used by scan/door actions for instant feedback). */
@@ -102,6 +110,25 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [pendingItems, setPendingItems] = useState<outbox.OutboxItem[]>([])
 
+  // Which event the scanner is focused on. 'all' = show venue-wide (current default).
+  // Persisted in sessionStorage so a page reload keeps the same focus during the event.
+  const [selectedEventId, setSelectedEventIdState] = useState<string | 'all'>(() => {
+    if (typeof window === 'undefined') return 'all'
+    try {
+      return (sessionStorage.getItem('scanner:selectedEventId') as string) || 'all'
+    } catch {
+      return 'all'
+    }
+  })
+  const setSelectedEventId = useCallback((id: string | 'all') => {
+    setSelectedEventIdState(id)
+    try {
+      sessionStorage.setItem('scanner:selectedEventId', id)
+    } catch {
+      /* sessionStorage may be disabled */
+    }
+  }, [])
+
   // Refs for stale-closure safety in scanner callbacks
   const attendeesRef = useRef(attendees)
   const eventNameMapRef = useRef<Record<string, string>>({})
@@ -161,17 +188,33 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
 
   const multipleEvents = eventIds.length > 0
 
+  // Clear invalid selection if the selected event is no longer in the list
+  // (e.g. event deleted server-side or user was reassigned).
+  useEffect(() => {
+    if (selectedEventId !== 'all' && serverEvents.length > 0 && !eventIds.includes(selectedEventId)) {
+      setSelectedEventIdState('all')
+      try { sessionStorage.removeItem('scanner:selectedEventId') } catch { /* */ }
+    }
+  }, [selectedEventId, eventIds, serverEvents.length])
+
+  // Filtered attendees — single source of truth for all per-event derived data.
+  // When 'all' is selected, we pass through the full list (same as before, no overhead).
+  const filteredAttendees = useMemo(() => {
+    if (selectedEventId === 'all') return attendees
+    return attendees.filter((a) => a.event_id === selectedEventId)
+  }, [attendees, selectedEventId])
+
   const doorCount = useMemo(
-    () => attendees.filter((a) => a.qr_code.startsWith('DOOR-')).length,
-    [attendees],
+    () => filteredAttendees.filter((a) => a.qr_code.startsWith('DOOR-')).length,
+    [filteredAttendees],
   )
 
-  // Stats derived from attendees (no separate setter → always consistent with list)
+  // Stats derived from filteredAttendees so the Stats bar shows the selected scope.
   const stats = useMemo(() => {
-    const total = attendees.length
-    const scanned = attendees.filter((t) => t.status === 'used').length
+    const total = filteredAttendees.length
+    const scanned = filteredAttendees.filter((t) => t.status === 'used').length
     return { total, scanned, pending: total - scanned }
-  }, [attendees])
+  }, [filteredAttendees])
 
   // `now` tick — drives rolling-window metrics. Updates every 60s so the
   // velocity / eta / sparkline stay fresh without being expensive.
@@ -194,7 +237,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     const buckets = new Array<number>(bucketCount).fill(0)
     const hourCounts: Record<number, number> = {}
 
-    for (const a of attendees) {
+    for (const a of filteredAttendees) {
       if (a.status !== 'used' || !a.scanned_at) continue
       const t = new Date(a.scanned_at).getTime()
       if (Number.isNaN(t)) continue
@@ -237,7 +280,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       peakHour,
       sparkline: buckets,
     }
-  }, [attendees, stats.pending, now])
+  }, [filteredAttendees, stats.pending, now])
 
   // Animated numbers
   const animTotal = useAnimatedNumber(stats.total)
@@ -492,6 +535,9 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       multipleEvents,
       loadingAttendees,
       bootstrapError,
+      selectedEventId,
+      setSelectedEventId,
+      filteredAttendees,
       loadAttendees,
       patchAttendee,
       soundEnabled,
@@ -522,6 +568,9 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       multipleEvents,
       loadingAttendees,
       bootstrapError,
+      selectedEventId,
+      setSelectedEventId,
+      filteredAttendees,
       loadAttendees,
       patchAttendee,
       soundEnabled,
