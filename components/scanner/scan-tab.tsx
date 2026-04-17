@@ -12,6 +12,8 @@ import {
   WifiOff,
   CloudUpload,
   Loader2,
+  Flashlight,
+  FlashlightOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -64,6 +66,24 @@ export function ScanTab() {
   const scannerRef = useRef<HTMLDivElement>(null)
   const html5QrRef = useRef<unknown>(null)
   const processedQRs = useRef<Set<string>>(new Set())
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null)
+  const [torchOn, setTorchOn] = useState(false)
+  const [torchSupported, setTorchSupported] = useState(false)
+
+  const toggleTorch = useCallback(async () => {
+    const track = videoTrackRef.current
+    if (!track) return
+    const next = !torchOn
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: next } as MediaTrackConstraintSet],
+      })
+      setTorchOn(next)
+    } catch (err) {
+      console.warn('Torch not supported on this device', err)
+      setTorchSupported(false)
+    }
+  }, [torchOn])
 
   const triggerFlash = useCallback(
     (kind: 'pending' | 'success' | 'duplicate' | 'error') => {
@@ -309,6 +329,23 @@ export function ScanTab() {
         },
         () => {},
       )
+
+      // Detect torch capability on the active video track (crucial for dark venues)
+      // html5-qrcode mounts a <video> inside #qr-reader; we read the stream from there
+      try {
+        const videoEl = document.querySelector<HTMLVideoElement>('#qr-reader video')
+        const stream = videoEl?.srcObject as MediaStream | null
+        const track = stream?.getVideoTracks()?.[0] || null
+        if (track) {
+          videoTrackRef.current = track
+          const caps = track.getCapabilities?.() as
+            | (MediaTrackCapabilities & { torch?: boolean })
+            | undefined
+          setTorchSupported(!!caps?.torch)
+        }
+      } catch {
+        /* torch detection is best-effort */
+      }
     } catch (err) {
       console.error('Scanner error:', err)
       setScanning(false)
@@ -335,6 +372,9 @@ export function ScanTab() {
       }
       html5QrRef.current = null
     }
+    videoTrackRef.current = null
+    setTorchOn(false)
+    setTorchSupported(false)
     setScanning(false)
     if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
     setFlash('none')
@@ -446,6 +486,28 @@ export function ScanTab() {
             {online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {online ? 'En linea' : 'Offline'}
           </div>
+        )}
+
+        {/* Torch / flashlight button — only rendered if camera supports it.
+            Placed bottom-right over the viewfinder where the thumb naturally rests. */}
+        {scanning && torchSupported && (
+          <button
+            onClick={toggleTorch}
+            aria-pressed={torchOn}
+            aria-label={torchOn ? 'Apagar linterna' : 'Encender linterna'}
+            className={cn(
+              'absolute bottom-3 right-3 w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-sm border transition-all active:scale-95',
+              torchOn
+                ? 'bg-amber-400 border-amber-300 text-black shadow-[0_0_20px_rgba(251,191,36,0.6)]'
+                : 'bg-black/60 border-white/15 text-white/70',
+            )}
+          >
+            {torchOn ? (
+              <Flashlight className="w-5 h-5" />
+            ) : (
+              <FlashlightOff className="w-5 h-5" />
+            )}
+          </button>
         )}
 
         {/* Hero card overlay — prominent feedback over the bottom of the camera */}
