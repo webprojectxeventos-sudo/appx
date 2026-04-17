@@ -473,11 +473,27 @@ export function ScanTab() {
           </div>
         )}
 
-        {/* Idle state */}
+        {/* Idle state — animated gradient + pulsing scan lines evoke an active sensor */}
         {!scanning && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Camera className="w-12 h-12 text-white-muted mb-3" />
-            <p className="text-white-muted text-sm">Pulsa para escanear</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden">
+            {/* Ambient radial gradient background */}
+            <div
+              className="absolute inset-0 opacity-60"
+              style={{
+                background:
+                  'radial-gradient(circle at 50% 50%, rgba(228,30,43,0.15) 0%, transparent 60%)',
+              }}
+            />
+            {/* Decorative scan line pulse */}
+            <div
+              className="absolute left-8 right-8 top-1/2 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+              style={{ animation: 'glow-pulse 2.5s ease-in-out infinite' }}
+            />
+            <div className="relative w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-3 backdrop-blur-sm">
+              <Camera className="w-7 h-7 text-primary" />
+            </div>
+            <p className="relative text-white/70 text-sm font-medium">Pulsa para escanear</p>
+            <p className="relative text-white/30 text-[11px] mt-1">QR · EAN · Code128</p>
           </div>
         )}
 
@@ -543,22 +559,42 @@ export function ScanTab() {
       {/* Controls */}
       <div className="flex gap-2">
         {!scanning ? (
-          <button onClick={startScanner} className="btn-primary flex-1 py-3.5 text-sm font-semibold">
-            <Camera className="w-5 h-5" />
-            Iniciar escaner
+          <button
+            onClick={startScanner}
+            className="relative flex-1 py-4 rounded-xl text-sm font-bold text-white overflow-hidden
+                       bg-gradient-to-br from-primary to-red-700
+                       shadow-[0_6px_20px_rgba(228,30,43,0.4)]
+                       hover:shadow-[0_8px_28px_rgba(228,30,43,0.55)]
+                       active:scale-[0.98] transition-all duration-200
+                       flex items-center justify-center gap-2"
+          >
+            {/* Subtle shimmer on top */}
+            <span
+              className="absolute inset-x-0 top-0 h-1/2 opacity-40 pointer-events-none"
+              style={{
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.25) 0%, transparent 100%)',
+              }}
+            />
+            <Camera className="w-5 h-5 relative" />
+            <span className="relative tracking-wide">Iniciar escaner</span>
           </button>
         ) : (
-          <button onClick={stopScanner} className="btn-ghost flex-1 py-3">
+          <button
+            onClick={stopScanner}
+            className="flex-1 py-4 rounded-xl text-sm font-semibold text-white/80
+                       bg-white/[0.06] border border-white/[0.08]
+                       hover:bg-white/[0.09] active:scale-[0.98] transition-all duration-200"
+          >
             Detener escaner
           </button>
         )}
         <button
           onClick={() => setSoundEnabled((s) => !s)}
           className={cn(
-            'w-12 flex items-center justify-center rounded-xl border transition-all',
+            'w-12 h-auto flex items-center justify-center rounded-xl border transition-all active:scale-95',
             soundEnabled
               ? 'border-primary/30 bg-primary/10 text-primary'
-              : 'border-black-border bg-white/5 text-white-muted',
+              : 'border-white/[0.08] bg-white/[0.04] text-white/40',
           )}
           aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
         >
