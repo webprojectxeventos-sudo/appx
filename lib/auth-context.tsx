@@ -206,37 +206,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       // Timeout of 8s — if getSession() hangs (e.g. expired token + unreachable refresh endpoint),
-      // fall through to "no session" and let the user re-login. Without this the app hangs on the
-      // splash screen forever. Cold starts are usually 1-3s on Supabase free tier; 8s is a wide margin.
+      // fall through to "no session" and let the UI render instead of staying stuck on splash.
+      // Cold starts on Supabase free tier are usually 1-3s; 8s is a wide margin.
       //
-      // IMPORTANT: The cleanup (localStorage wipe) must ONLY run when the timeout actually wins
-      // the race. Previously the setTimeout fired unconditionally at 8s, wiping sb-* tokens
-      // even when getSession() had already resolved successfully — which killed fresh login
-      // sessions and, crucially, password-recovery sessions (the user sees "Auth session
-      // missing!" when they click Guardar contraseña ~10s after landing on /reset-password).
+      // CRITICAL: this timeout is UI-only. It must NEVER touch localStorage.
+      // History: an earlier version wiped sb-* keys on timeout "to clean up stale tokens."
+      // That broke password-recovery: on a cold start the hash-processing sets a valid
+      // recovery session synchronously, but getSession()'s network call still takes >8s,
+      // so the timer fired, wiped the freshly-written tokens, and `updateUser({ password })`
+      // then failed with "Auth session missing!". Never again.
+      //
+      // If we hit the timeout, we just return null and render the app as unauthenticated;
+      // if there are actually valid tokens in localStorage, they'll be picked up on the
+      // next reload or on the next Supabase call. Any real stale-token cleanup happens
+      // explicitly in signOut() or on SIGNED_OUT events, not on a timer.
       let timeoutId: ReturnType<typeof setTimeout> | null = null
-      let timeoutFired = false
       try {
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) => {
           timeoutId = setTimeout(() => {
-            timeoutFired = true
-            console.warn('[Auth] getSession() timed out after 8s — treating as no session')
-            // Proactively clear any stale auth tokens so the next boot is clean
-            try {
-              Object.keys(localStorage)
-                .filter((k) => k.startsWith('sb-'))
-                .forEach((k) => localStorage.removeItem(k))
-            } catch {
-              /* ignore */
-            }
+            console.warn('[Auth] getSession() timed out after 8s — rendering as no session (localStorage left intact)')
             resolve({ data: { session: null } })
           }, 8000)
         })
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise])
 
-        // Cancel the pending wipe — getSession() resolved in time.
-        if (!timeoutFired && timeoutId) {
+        // Always clear the timer once the race resolves.
+        if (timeoutId) {
           clearTimeout(timeoutId)
           timeoutId = null
         }
