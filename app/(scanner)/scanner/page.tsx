@@ -9,19 +9,23 @@ import { StatsBar } from '@/components/scanner/stats-bar'
 import { ScanTab } from '@/components/scanner/scan-tab'
 import { DoorTab } from '@/components/scanner/door-tab'
 import { ListTab } from '@/components/scanner/list-tab'
-import { EventHero } from '@/components/scanner/event-hero'
-import { EventSwitcherSheet } from '@/components/scanner/event-switcher-sheet'
+import { EventPicker } from '@/components/scanner/event-picker'
 
 // ── Inner component (needs scanner context) ─────────────────────────────────
 
 function ScannerContent() {
   const { doorCount } = useScanner()
   const [tab, setTab] = useState<'scan' | 'door' | 'list'>('scan')
-  const [switcherOpen, setSwitcherOpen] = useState(false)
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <EventHero onOpenSwitcher={() => setSwitcherOpen(true)} />
+      {/* Primary navigation: horizontal rail of all events at the venue.
+          Replaces the old EventHero card + bottom-sheet switcher combo —
+          operators see all scopes at a glance and can tap to change focus
+          without opening a modal. */}
+      <EventPicker />
+
+      {/* Aggregate stats for the currently-selected scope */}
       <StatsBar />
 
       {/* Tab switcher — gradient on active, subtle shadow, icon pops */}
@@ -86,9 +90,6 @@ function ScannerContent() {
           {tab === 'list' && <ListTab />}
         </motion.div>
       </AnimatePresence>
-
-      {/* Bottom-sheet for changing which event is in focus */}
-      <EventSwitcherSheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
     </div>
   )
 }

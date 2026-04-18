@@ -1,7 +1,9 @@
 // Project X — Service Worker for offline support
 // Caching strategy: Cache-first for static, Network-first for API, dedicated image cache
 
-const CACHE_VERSION = 'v4'
+// Bump version to invalidate PWA caches — iOS clients pick up new assets on
+// next network hit after this changes (the old caches get deleted in activate).
+const CACHE_VERSION = 'v5'
 const STATIC_CACHE = `projectx-static-${CACHE_VERSION}`
 const DATA_CACHE = `projectx-data-${CACHE_VERSION}`
 const IMAGE_CACHE = `projectx-images-${CACHE_VERSION}`
