@@ -3,7 +3,7 @@
 
 // Bump version to invalidate PWA caches — iOS clients pick up new assets on
 // next network hit after this changes (the old caches get deleted in activate).
-const CACHE_VERSION = 'v6'
+const CACHE_VERSION = 'v7'
 const STATIC_CACHE = `projectx-static-${CACHE_VERSION}`
 const DATA_CACHE = `projectx-data-${CACHE_VERSION}`
 const IMAGE_CACHE = `projectx-images-${CACHE_VERSION}`
@@ -71,6 +71,31 @@ function isNavigationRequest(request) {
 // Helper: is this a Supabase API request?
 function isApiRequest(url) {
   return url.hostname.includes('supabase') || url.pathname.startsWith('/api/')
+}
+
+// Helper: should this API request NEVER be cached?
+//
+// Caching cross-identity data on a shared device is a privacy leak — the
+// next user of the same browser could see the prior user's admin lists,
+// push-subscription state, or Supabase row reads. Network-only for:
+//   - Supabase hostnames (all REST/Storage/Auth traffic is user-scoped)
+//   - /api/admin/*       (admin-scoped responses must never persist)
+//   - /api/push          (push broadcast endpoint, admin-only)
+//   - /api/scanner/*     (scanner bootstrap + scans are staff-scoped)
+//   - /api/promoter/*    (promoter-scoped)
+//   - /api/auth/*        (auth-sensitive)
+//   - /api/send-ticket   (POST-only anyway, but never cache responses)
+function isPrivateRequest(url) {
+  if (url.hostname.includes('supabase')) return true
+  const p = url.pathname
+  return (
+    p.startsWith('/api/admin/') ||
+    p.startsWith('/api/push') ||
+    p.startsWith('/api/scanner/') ||
+    p.startsWith('/api/promoter/') ||
+    p.startsWith('/api/auth/') ||
+    p.startsWith('/api/send-ticket')
+  )
 }
 
 // Helper: is this an image request?
@@ -150,7 +175,20 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Strategy 3: API / Supabase data — Network-first, fallback to cache
+  // Strategy 3a: Private / identity-scoped APIs — NETWORK-ONLY.
+  // Never cached, never replayed offline. If the request fails the caller
+  // sees the network error directly (preferable to a stale admin list).
+  if (isApiRequest(url) && isPrivateRequest(url)) {
+    event.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ error: 'offline' }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } },
+      )),
+    )
+    return
+  }
+
+  // Strategy 3b: Public API (non-identity-scoped) — Network-first, cache fallback
   if (isApiRequest(url)) {
     event.respondWith(
       caches.open(DATA_CACHE).then((cache) =>
