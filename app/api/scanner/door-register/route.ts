@@ -5,6 +5,51 @@ import { canStaffEvent } from '@/lib/scanner-access'
 
 const DOOR_LIMIT_DEFAULT = 20
 
+// ── Abuse prevention ──────────────────────────────────────────────────────
+//
+// Door-register creates an auth user + profile + user_events row + ticket
+// on every call. A compromised scanner tablet (or a buggy client stuck in
+// a loop) can hammer auth.admin.createUser and blow the DB pool / Supabase
+// rate limits. Two layers of defence:
+//
+//   1. Per-scanner-user rate bucket: 120/min. Real operators typically
+//      register 20-40/event; 120/min is 2/second sustained — generous for
+//      a busy door, tight enough that a rogue client trips fast.
+//   2. Per-event no-promoter cap: DOOR_UNATTRIBUTED_MAX free-form entries
+//      per event (no promoter_code). If a venue needs more, they should
+//      use a promoter code (which has its own DOOR_LIMIT_DEFAULT cap).
+//
+// State is in-memory per Vercel instance. At 3-4 warm instances the effective
+// limits are 3-4x the configured numbers, which is fine — the floor is what
+// matters for crash prevention.
+const RATE_WINDOW_MS = 60_000
+const RATE_LIMIT_PER_USER = 120
+const DOOR_UNATTRIBUTED_MAX = 500 // per event, lifetime
+
+const rateBuckets = new Map<string, number[]>()
+
+function rateLimit(userId: string): boolean {
+  const now = Date.now()
+  const bucket = rateBuckets.get(userId) || []
+  const fresh = bucket.filter((t) => now - t < RATE_WINDOW_MS)
+  if (fresh.length >= RATE_LIMIT_PER_USER) {
+    rateBuckets.set(userId, fresh)
+    return false
+  }
+  fresh.push(now)
+  rateBuckets.set(userId, fresh)
+
+  // Prune the map occasionally so it doesn't grow unbounded across shifts
+  if (rateBuckets.size > 2000) {
+    for (const [uid, times] of rateBuckets.entries()) {
+      if (times.length === 0 || now - times[times.length - 1] > RATE_WINDOW_MS) {
+        rateBuckets.delete(uid)
+      }
+    }
+  }
+  return true
+}
+
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -21,6 +66,14 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await userClient.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Rate-limit by scanner user (cheap — before any DB work)
+  if (!rateLimit(user.id)) {
+    return NextResponse.json(
+      { error: 'Demasiadas entradas registradas en poco tiempo. Espera un momento.' },
+      { status: 429 },
+    )
   }
 
   // Parse body
@@ -84,6 +137,21 @@ export async function POST(request: NextRequest) {
     if ((count || 0) >= DOOR_LIMIT_DEFAULT) {
       return NextResponse.json({
         error: `Limite de entradas en puerta alcanzado (${DOOR_LIMIT_DEFAULT}) para este organizador`,
+      }, { status: 400 })
+    }
+  } else {
+    // No promoter code: enforce a per-event cap on unattributed door entries
+    // so a runaway client can't create thousands of fake users.
+    // Attributed = has DOOR- prefix on qr_code (see ticket creation below).
+    const { count: doorCount } = await sb
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', event_id)
+      .like('qr_code', 'DOOR-%')
+
+    if ((doorCount || 0) >= DOOR_UNATTRIBUTED_MAX) {
+      return NextResponse.json({
+        error: `Limite de entradas en puerta para este evento alcanzado (${DOOR_UNATTRIBUTED_MAX}). Usa un codigo de organizador.`,
       }, { status: 400 })
     }
   }

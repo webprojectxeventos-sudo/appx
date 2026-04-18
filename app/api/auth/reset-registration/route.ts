@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+// ── Abuse prevention ──────────────────────────────────────────────────────
+//
+// Without rate limiting, an attacker can hit this endpoint with arbitrary
+// emails to probe which are unconfirmed accounts. Each call also does an
+// expensive paginated scan of auth.users (fallback), so throttling matters
+// for service stability too.
+//
+// Window: 10 attempts per IP per 10 minutes. Legitimate use is 1-2 attempts
+// by a confused user; anything above that is almost certainly abuse.
+const RATE_WINDOW_MS = 10 * 60_000
+const RATE_LIMIT_PER_IP = 10
+const ipBuckets = new Map<string, number[]>()
+
+function checkIpRate(ip: string): boolean {
+  const now = Date.now()
+  const bucket = ipBuckets.get(ip) || []
+  const fresh = bucket.filter((t) => now - t < RATE_WINDOW_MS)
+  if (fresh.length >= RATE_LIMIT_PER_IP) {
+    ipBuckets.set(ip, fresh)
+    return false
+  }
+  fresh.push(now)
+  ipBuckets.set(ip, fresh)
+
+  if (ipBuckets.size > 2000) {
+    for (const [k, times] of ipBuckets.entries()) {
+      const last = times[times.length - 1] ?? 0
+      if (now - last > RATE_WINDOW_MS) ipBuckets.delete(k)
+    }
+  }
+  return true
+}
+
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  )
+}
+
 // Self-service recovery for users who registered with the wrong email.
 //
 // A user is stuck if they typed their email wrong at registration:
@@ -24,6 +65,14 @@ import { createClient } from '@supabase/supabase-js'
 //     hasn't been confirmed yet, which is exactly our case)
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request)
+    if (!checkIpRate(ip)) {
+      return NextResponse.json(
+        { error: 'Demasiados intentos. Espera 10 minutos y prueba de nuevo.' },
+        { status: 429 },
+      )
+    }
+
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -50,32 +99,55 @@ export async function POST(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // 1) Find the auth user by email
-    //    Supabase's listUsers API doesn't support email filter server-side,
-    //    so we paginate. In practice this scales fine: listUsers hits an
-    //    indexed column and returns 1 page at a time.
+    // 1) Find the auth user by email.
+    //
+    // Fast path: look up id in public.users (indexed on email via the
+    // handle_new_user trigger). One call. Fallback: paginate auth.users if
+    // the public row is missing for some reason (e.g. trigger hiccup).
     type TargetUser = { id: string; email?: string; email_confirmed_at?: string | null; user_metadata?: Record<string, unknown> }
     let targetUser: TargetUser | null = null
-    let page = 1
-    const perPage = 100
-    while (page <= 20) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
-      if (error) {
-        console.error('[reset-registration] listUsers error:', error.message)
-        return NextResponse.json({ error: 'Error al buscar la cuenta' }, { status: 500 })
-      }
-      const found = data.users.find(u => u.email?.toLowerCase() === rawEmail)
-      if (found) {
+
+    const { data: publicUser } = await admin
+      .from('users')
+      .select('id')
+      .eq('email', rawEmail)
+      .maybeSingle()
+
+    if (publicUser?.id) {
+      const { data, error } = await admin.auth.admin.getUserById(publicUser.id)
+      if (!error && data.user) {
         targetUser = {
-          id: found.id,
-          email: found.email,
-          email_confirmed_at: found.email_confirmed_at,
-          user_metadata: found.user_metadata as Record<string, unknown> | undefined,
+          id: data.user.id,
+          email: data.user.email,
+          email_confirmed_at: data.user.email_confirmed_at,
+          user_metadata: data.user.user_metadata as Record<string, unknown> | undefined,
         }
-        break
       }
-      if (data.users.length < perPage) break
-      page++
+    }
+
+    // Fallback: auth.users paginated scan if fast path missed.
+    if (!targetUser) {
+      let page = 1
+      const perPage = 100
+      while (page <= 20) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
+        if (error) {
+          console.error('[reset-registration] listUsers error:', error.message)
+          return NextResponse.json({ error: 'Error al buscar la cuenta' }, { status: 500 })
+        }
+        const found = data.users.find(u => u.email?.toLowerCase() === rawEmail)
+        if (found) {
+          targetUser = {
+            id: found.id,
+            email: found.email,
+            email_confirmed_at: found.email_confirmed_at,
+            user_metadata: found.user_metadata as Record<string, unknown> | undefined,
+          }
+          break
+        }
+        if (data.users.length < perPage) break
+        page++
+      }
     }
 
     if (!targetUser) {

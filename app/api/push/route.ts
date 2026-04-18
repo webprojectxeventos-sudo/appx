@@ -9,6 +9,13 @@ const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:admin@projectx.com'
 
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE)
+} else {
+  // Loud boot-time warning — silent VAPID misconfig is the worst failure mode
+  // for moderation: admins never get alerted when a chat auto-disables.
+  console.warn(
+    '[push] VAPID keys missing — all push notifications will silently fail. ' +
+      'Set NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in Vercel env.',
+  )
 }
 
 // Create Supabase client with service role for querying subscriptions

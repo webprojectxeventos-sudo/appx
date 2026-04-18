@@ -4,14 +4,35 @@
 // Access model:
 //   - `scanner` and `cloakroom` access is **venue-based**: assign a scanner
 //     to ANY event at a venue and they automatically see ALL events at that
-//     venue (past, present, future). No date window.
+//     venue within the operational window (see STAFF_EVENT_WINDOW below).
 //   - `group_admin` and `promoter` access is explicit per-event via
 //     `user_events`.
 //   - `admin` and `super_admin` access is IMPLICIT via their profile role
-//     and `organization_id` — they see every event in their org (no date
-//     window).
+//     and `organization_id` — they see every event in their org inside the
+//     same operational window.
 
 import { SupabaseClient } from '@supabase/supabase-js'
+
+// ── Operational window ────────────────────────────────────────────────────
+//
+// Without a window, scanners at a long-lived venue eventually carry ALL
+// historical events in their bootstrap (→ O(venue-lifetime) rows of tickets
+// + users streamed to every mobile scanner on page load). That's a DB-pool
+// hazard on graduation nights with many scanners opening simultaneously.
+//
+// The window is intentionally generous: 7 days back covers yesterday's late
+// cleanup + door registrations, 30 days forward covers rehearsal scans and
+// soft-opens. Anything outside this range requires explicit admin action
+// (not a hot path) and can be widened with an env var if ever needed.
+const LOOKBACK_DAYS = 7
+const LOOKAHEAD_DAYS = 30
+
+function eventWindow(): { fromIso: string; toIso: string } {
+  const now = Date.now()
+  const fromIso = new Date(now - LOOKBACK_DAYS * 86_400_000).toISOString()
+  const toIso = new Date(now + LOOKAHEAD_DAYS * 86_400_000).toISOString()
+  return { fromIso, toIso }
+}
 
 export const STAFF_ROLES = ['scanner', 'admin', 'super_admin', 'group_admin', 'promoter', 'cloakroom'] as const
 
@@ -72,8 +93,10 @@ export async function getStaffEventIds(
     }
   }
 
+  const { fromIso, toIso } = eventWindow()
+
   // Venue-wide expansion for scanner / cloakroom:
-  // If they're assigned to any event at a venue, they see ALL events at that venue.
+  // Bootstrap pulls events at the same venue(s) within the operational window.
   if (VENUE_WIDE_ROLES.includes(profile.role) && eventIds.size > 0) {
     // Get venue_ids from assigned events
     const { data: assignedEvents } = await admin
@@ -88,11 +111,13 @@ export async function getStaffEventIds(
     )]
 
     if (venueIds.length > 0) {
-      // Fetch ALL events at those venues (no date filter)
+      // Events at those venues within the operational window
       const { data: venueEvents } = await admin
         .from('events')
         .select('id')
         .in('venue_id', venueIds)
+        .gte('date', fromIso)
+        .lte('date', toIso)
 
       if (venueEvents) {
         for (const e of venueEvents) eventIds.add(e.id)
@@ -100,13 +125,15 @@ export async function getStaffEventIds(
     }
   }
 
-  // Org-wide access for admin / super_admin (no date filter)
+  // Org-wide access for admin / super_admin, same operational window.
   const isOrgStaff = profile.role === 'admin' || profile.role === 'super_admin'
   if (isOrgStaff && profile.organization_id) {
     const { data: orgEvents } = await admin
       .from('events')
       .select('id')
       .eq('organization_id', profile.organization_id)
+      .gte('date', fromIso)
+      .lte('date', toIso)
 
     if (orgEvents) {
       for (const e of orgEvents) eventIds.add(e.id)
