@@ -56,16 +56,37 @@ export async function POST(request: NextRequest) {
 
     const supabaseAdmin = createClient(url, serviceKey)
 
-    // If group_admin, verify they have access to this event
-    if (callerProfile.role === 'group_admin') {
-      const { data: membership } = await supabaseAdmin
-        .from('user_events')
-        .select('id')
-        .eq('user_id', callerId)
-        .eq('event_id', eventId)
-        .maybeSingle()
-      if (!membership) {
-        return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+    // Cross-org authorization check.
+    //
+    // - super_admin: anywhere.
+    // - admin: only events in their own organization. Previously absent —
+    //   an admin from Org A could ban users in Org B events by POSTing any
+    //   eventId. Now we load the event and compare organization_id.
+    // - group_admin: must have an explicit user_events membership for the event.
+    if (callerProfile.role !== 'super_admin') {
+      const { data: targetEvent } = await supabaseAdmin
+        .from('events')
+        .select('id, organization_id')
+        .eq('id', eventId)
+        .single()
+      if (!targetEvent) {
+        return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 })
+      }
+
+      if (callerProfile.role === 'admin') {
+        if (!callerProfile.organization_id || targetEvent.organization_id !== callerProfile.organization_id) {
+          return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+        }
+      } else if (callerProfile.role === 'group_admin') {
+        const { data: membership } = await supabaseAdmin
+          .from('user_events')
+          .select('id')
+          .eq('user_id', callerId)
+          .eq('event_id', eventId)
+          .maybeSingle()
+        if (!membership) {
+          return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+        }
       }
     }
 
@@ -144,16 +165,31 @@ export async function DELETE(request: NextRequest) {
 
     const supabaseAdmin = createClient(url, serviceKey)
 
-    // If group_admin, verify they have access to this event
-    if (callerProfile.role === 'group_admin') {
-      const { data: membership } = await supabaseAdmin
-        .from('user_events')
-        .select('id')
-        .eq('user_id', callerId)
-        .eq('event_id', eventId)
-        .maybeSingle()
-      if (!membership) {
-        return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+    // Same cross-org authorization as POST — keep these paths in sync.
+    if (callerProfile.role !== 'super_admin') {
+      const { data: targetEvent } = await supabaseAdmin
+        .from('events')
+        .select('id, organization_id')
+        .eq('id', eventId)
+        .single()
+      if (!targetEvent) {
+        return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 })
+      }
+
+      if (callerProfile.role === 'admin') {
+        if (!callerProfile.organization_id || targetEvent.organization_id !== callerProfile.organization_id) {
+          return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+        }
+      } else if (callerProfile.role === 'group_admin') {
+        const { data: membership } = await supabaseAdmin
+          .from('user_events')
+          .select('id')
+          .eq('user_id', callerId)
+          .eq('event_id', eventId)
+          .maybeSingle()
+        if (!membership) {
+          return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+        }
       }
     }
 

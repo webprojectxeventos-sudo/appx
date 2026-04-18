@@ -1,5 +1,24 @@
 import { NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { createClient } from '@supabase/supabase-js'
+
+// Per-user rate limit: 20/hour. A user legitimately resends their ticket
+// a few times on a bad day; anything above that is abuse.
+const RATE_WINDOW_MS = 60 * 60_000
+const RATE_LIMIT_PER_USER = 20
+const rateBuckets = new Map<string, number[]>()
+
+function rateOk(userId: string): boolean {
+  const now = Date.now()
+  const bucket = (rateBuckets.get(userId) || []).filter((t) => now - t < RATE_WINDOW_MS)
+  if (bucket.length >= RATE_LIMIT_PER_USER) {
+    rateBuckets.set(userId, bucket)
+    return false
+  }
+  bucket.push(now)
+  rateBuckets.set(userId, bucket)
+  return true
+}
 
 export async function POST(req: Request) {
   try {
@@ -15,11 +34,80 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
-    const { to, userName, eventTitle, qrCode, eventDate, venueName } = await req.json()
-
-    if (!to || !userName || !eventTitle || !qrCode) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (!rateOk(userId)) {
+      return NextResponse.json({ error: 'Demasiados envios. Espera una hora.' }, { status: 429 })
     }
+
+    const { qrCode, eventDate, venueName } = await req.json()
+    if (!qrCode || typeof qrCode !== 'string') {
+      return NextResponse.json({ error: 'Missing qrCode' }, { status: 400 })
+    }
+
+    // ── Ownership check ─────────────────────────────────────────────────
+    //
+    // Previously this endpoint trusted `to`, `userName`, `eventTitle` from
+    // the body — any authenticated attendee could send arbitrary emails
+    // with attacker-controlled content to any address (phishing / SMTP
+    // exhaustion). Now we look up the ticket by qr_code, verify the caller
+    // owns it (or is org staff), and build the email from authoritative DB
+    // fields only.
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !serviceKey) {
+      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+    }
+    const sb = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+
+    const { data: ticket } = await sb
+      .from('tickets')
+      .select('id, user_id, event_id, qr_code')
+      .eq('qr_code', qrCode)
+      .maybeSingle()
+    if (!ticket) {
+      return NextResponse.json({ error: 'Ticket no encontrado' }, { status: 404 })
+    }
+
+    // Caller must own the ticket OR be admin/super_admin in the event's org.
+    let authorized = ticket.user_id === userId
+    if (!authorized) {
+      const [{ data: caller }, { data: event }] = await Promise.all([
+        sb.from('users').select('role, organization_id').eq('id', userId).single(),
+        sb.from('events').select('organization_id').eq('id', ticket.event_id).single(),
+      ])
+      if (
+        caller &&
+        event &&
+        (caller.role === 'super_admin' ||
+          (caller.role === 'admin' && caller.organization_id === event.organization_id))
+      ) {
+        authorized = true
+      }
+    }
+    if (!authorized) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+
+    // Build the email from DB-authoritative fields (never from body).
+    const [{ data: owner }, { data: event }] = await Promise.all([
+      sb.from('users').select('email, full_name').eq('id', ticket.user_id).single(),
+      sb.from('events').select('title, date, venue_id').eq('id', ticket.event_id).single(),
+    ])
+    if (!owner?.email || !event?.title) {
+      return NextResponse.json({ error: 'Datos de entrada incompletos' }, { status: 500 })
+    }
+
+    let venueResolved: string | null = typeof venueName === 'string' ? venueName : null
+    if (!venueResolved && event.venue_id) {
+      const { data: v } = await sb.from('venues').select('name').eq('id', event.venue_id).single()
+      venueResolved = v?.name ?? null
+    }
+
+    const to = owner.email
+    const userName = owner.full_name || 'Asistente'
+    const eventTitle = event.title
+    const eventDateResolved = eventDate ?? event.date ?? null
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -42,13 +130,13 @@ export async function POST(req: Request) {
 
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrCode)}&bgcolor=ffffff&color=000000&margin=12`
 
-    const formattedDate = eventDate
-      ? new Date(eventDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    const formattedDate = eventDateResolved
+      ? new Date(eventDateResolved).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       : null
 
     const safeUserName = esc(userName)
     const safeEventTitle = esc(eventTitle)
-    const safeVenueName = venueName ? esc(venueName) : null
+    const safeVenueName = venueResolved ? esc(venueResolved) : null
     const firstName = safeUserName.split(' ')[0]
 
     const html = `<!DOCTYPE html>
@@ -106,19 +194,19 @@ export async function POST(req: Request) {
                 </tr>
 
                 <!-- Event Details -->
-                ${formattedDate || venueName ? `
+                ${formattedDate || safeVenueName ? `
                 <tr>
                   <td style="padding-bottom:24px;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background-color:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;">
                       ${formattedDate ? `
                       <tr>
-                        <td style="padding-bottom:${venueName ? '10px' : '0'};">
+                        <td style="padding-bottom:${safeVenueName ? '10px' : '0'};">
                           <p style="margin:0;font-size:11px;color:#555555;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Fecha</p>
                           <p style="margin:4px 0 0;font-size:14px;color:#cccccc;font-weight:500;text-transform:capitalize;">${formattedDate}</p>
                         </td>
                       </tr>
                       ` : ''}
-                      ${venueName ? `
+                      ${safeVenueName ? `
                       <tr>
                         <td>
                           <p style="margin:0;font-size:11px;color:#555555;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Lugar</p>
