@@ -354,6 +354,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     loadedUserId.current = null
+
+    // ── Clean up push subscription BEFORE signing out ───────────────────
+    //
+    // Without this, on a shared device the next user who logs in keeps
+    // receiving pushes meant for the previous user (the browser's push
+    // subscription is device-wide — the SW shows any notification sent
+    // to its endpoint regardless of which user owns the subscription row
+    // in our DB). Order matters:
+    //   1) DELETE the row via the still-authenticated Supabase client
+    //      (RLS ties push_subscriptions rows to auth.uid()).
+    //   2) Call pushSubscription.unsubscribe() in the browser.
+    //   3) Supabase signOut.
+    //
+    // Everything here is best-effort — we never block signOut on push
+    // cleanup failing, and we guard with a 2s timeout in case
+    // serviceWorker.ready never resolves (e.g. Safari private mode).
+    if (user && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const readyWithTimeout = Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+        ])
+        const registration = await readyWithTimeout
+        if (registration) {
+          const pushSub = await registration.pushManager.getSubscription()
+          if (pushSub) {
+            const endpoint = pushSub.endpoint
+            try {
+              await supabase
+                .from('push_subscriptions')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('endpoint', endpoint)
+            } catch { /* ignore */ }
+            try {
+              await pushSub.unsubscribe()
+            } catch { /* ignore */ }
+          }
+        }
+      } catch {
+        // Never let push cleanup block signOut
+      }
+    }
+
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
@@ -362,7 +406,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEvents([])
     setOrganization(null)
     router.push('/login')
-  }, [router])
+  }, [router, user])
 
   // Role helpers
   const role = profile?.role || 'attendee'
