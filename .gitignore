@@ -75,3 +75,6 @@ android/keystore.properties
 public/playstore-bundle.aab
 public/playstore-feature.png
 public/playstore-phone-*.png
+
+# Forensic evidence exports — never commit
+evidence/

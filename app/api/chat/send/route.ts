@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getCallerId } from '@/lib/api-auth'
-import { containsProfanity, filterProfanity } from '@/lib/profanity-filter'
+import { classifyContent, filterTier3, type ContentTier } from '@/lib/content-classifier'
+import { autoDisableChat, recordFlaggedMessage } from '@/lib/event-moderation'
 
 /**
  * Server-side chat send pipeline.
@@ -17,9 +18,13 @@ import { containsProfanity, filterProfanity } from '@/lib/profanity-filter'
  *   5. User has a non-empty full_name   → 403
  *   6. User is not banned (chat_bans)   → 403
  *   7. User is not muted (user_events)  → 403
- *   8. Exact-duplicate cooldown         → 429
- *   9. Profanity check + strike ledger  → 422 (muted on 3rd strike)
- *  10. Insert via service role          → 200
+ *   8. Content tiered classifier:
+ *        TIER_1 → permanent ban + reject
+ *        TIER_2 → instant mute + reject
+ *        TIER_3 → strike (3 → auto-mute for event)
+ *   9. Exact-duplicate cooldown         → 429
+ *  10. Event-level circuit breaker      → auto-disable chat if tripped
+ *  11. Insert via service role          → 200
  *
  * The in-process rate limit is intentionally simple — a Map keyed by user_id.
  * For 40k simultaneous users this is fine at the scale of one Vercel instance
@@ -34,7 +39,7 @@ const PER_USER_MIN_INTERVAL_MS = 2_000           // 1 msg / 2s floor
 const PER_USER_WINDOW_MS = 60_000                // 60s window
 const PER_USER_WINDOW_LIMIT = 12                 // max msgs per window
 const DUPLICATE_WINDOW_MS = 15_000               // block identical msg within 15s
-const STRIKE_WINDOW_MS = 5 * 60_000              // strike decay window
+const STRIKE_WINDOW_MS = 24 * 60 * 60_000        // 24h strike decay — was 5min, users learned to respace
 const STRIKE_THRESHOLD = 3                       // 3 strikes → auto-mute
 
 type RateBucket = {
@@ -63,6 +68,48 @@ function pruneBuckets() {
   for (const [uid, b] of buckets.entries()) {
     if (now - b.lastAt > PER_USER_WINDOW_MS * 5) buckets.delete(uid)
   }
+}
+
+/**
+ * Apply TIER_1 (instant ban) for a user on the given event.
+ * Uses upsert so if a prior ban exists, it gets reactivated with the AUTO tag.
+ */
+async function applyInstantBan(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+  eventId: string,
+  reason: string,
+) {
+  // banned_by references auth.users NOT NULL. For auto-bans we use the
+  // offender's own ID — the "reason" text tags it as AUTO_BAN so humans
+  // can filter for it in /admin/comms. This avoids needing a synthetic
+  // system user in auth.users.
+  await supabaseAdmin
+    .from('chat_bans')
+    .upsert(
+      {
+        user_id: userId,
+        event_id: eventId,
+        banned_by: userId,
+        reason,
+        expires_at: null,       // permanent
+        is_active: true,
+        banned_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,event_id' },
+    )
+}
+
+async function applyInstantMute(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+  eventId: string,
+) {
+  await supabaseAdmin
+    .from('user_events')
+    .update({ is_muted: true })
+    .eq('user_id', userId)
+    .eq('event_id', eventId)
 }
 
 export async function POST(request: NextRequest) {
@@ -138,10 +185,6 @@ export async function POST(request: NextRequest) {
     })
 
     // ── Kill-switch: is chat enabled for this event? ────────────────────────
-    // For general/venue chat we check against ALL events in that venue (if any
-    // event has chat_enabled=false we treat the venue chat as disabled too —
-    // otherwise kids would swarm the general chat when admin shuts down the
-    // private one).
     if (!isGeneral && eventId) {
       const { data: ev } = await supabaseAdmin
         .from('events')
@@ -219,9 +262,105 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Profanity check: strike + auto-mute ────────────────────────────────
-    if (containsProfanity(content)) {
-      // Strikes decay after STRIKE_WINDOW_MS of inactivity
+    // ── Tiered content classification ──────────────────────────────────────
+    const classification = classifyContent(content)
+
+    if (classification) {
+      const tier: ContentTier = classification.tier
+
+      // Record for event-level circuit breaker stats (not general chat)
+      let breakerTripped: { tripped: boolean; reason?: string } = { tripped: false }
+      if (!isGeneral && eventId) {
+        breakerTripped = recordFlaggedMessage(eventId, callerId)
+      }
+
+      // ── TIER 1 — INSTANT BAN ────────────────────────────────────────────
+      if (tier === 1) {
+        const reason =
+          `AUTO_BAN tier 1 [${classification.category}] match="${classification.match}" ` +
+          `fecha=${new Date(now).toISOString()}`
+
+        if (eventId) {
+          await applyInstantBan(supabaseAdmin, callerId, eventId, reason)
+        } else if (venueId) {
+          // General/venue chat → mute across every event in the venue.
+          // We don't have a single event to ban per se, so a venue-wide mute
+          // is the closest equivalent while still leaving trail.
+          const { data: venueEvents } = await supabaseAdmin
+            .from('events')
+            .select('id')
+            .eq('venue_id', venueId)
+          const venueEventIds = (venueEvents || []).map((e) => e.id)
+          if (venueEventIds.length) {
+            await supabaseAdmin
+              .from('user_events')
+              .update({ is_muted: true })
+              .eq('user_id', callerId)
+              .in('event_id', venueEventIds)
+          }
+        }
+
+        console.warn(
+          `[chat/send] TIER_1 auto-ban user=${callerId} event=${eventId || 'general'} cat=${classification.category} match="${classification.match}"`,
+        )
+
+        // Trip circuit breaker regardless of threshold when tier 1 is posted —
+        // one TIER_1 hit = disable the chat so admin triage.
+        if (!isGeneral && eventId && !breakerTripped.tripped) {
+          breakerTripped = { tripped: true, reason: `Tier 1: ${classification.category}` }
+        }
+
+        if (breakerTripped.tripped && eventId) {
+          await autoDisableChat(supabaseAdmin, eventId, breakerTripped.reason || 'tier 1')
+        }
+
+        return NextResponse.json(
+          {
+            error:
+              'Has sido bloqueado permanentemente del chat por contenido prohibido. Un moderador revisara el caso.',
+          },
+          { status: 403, headers: { 'X-Reason': 'AUTO_BANNED' } },
+        )
+      }
+
+      // ── TIER 2 — INSTANT MUTE ───────────────────────────────────────────
+      if (tier === 2) {
+        if (eventId) {
+          await applyInstantMute(supabaseAdmin, callerId, eventId)
+        } else if (venueId) {
+          const { data: venueEvents } = await supabaseAdmin
+            .from('events')
+            .select('id')
+            .eq('venue_id', venueId)
+          const venueEventIds = (venueEvents || []).map((e) => e.id)
+          if (venueEventIds.length) {
+            await supabaseAdmin
+              .from('user_events')
+              .update({ is_muted: true })
+              .eq('user_id', callerId)
+              .in('event_id', venueEventIds)
+          }
+        }
+
+        console.warn(
+          `[chat/send] TIER_2 auto-mute user=${callerId} event=${eventId || 'general'} cat=${classification.category} match="${classification.match}"`,
+        )
+
+        if (breakerTripped.tripped && eventId) {
+          await autoDisableChat(supabaseAdmin, eventId, breakerTripped.reason || 'tier 2 spike')
+        }
+
+        return NextResponse.json(
+          {
+            error:
+              'Has sido silenciado por contenido inapropiado. Un moderador revisara el caso.',
+          },
+          { status: 403, headers: { 'X-Reason': 'AUTO_MUTED_T2' } },
+        )
+      }
+
+      // ── TIER 3 — STRIKE LEDGER ──────────────────────────────────────────
+      // Strikes decay after STRIKE_WINDOW_MS (24h) of inactivity.
       const lastStrike = userRow.last_strike_at ? new Date(userRow.last_strike_at).getTime() : 0
       const windowActive = now - lastStrike < STRIKE_WINDOW_MS
       const nextStrikes = (windowActive ? (userRow.profanity_strikes || 0) : 0) + 1
@@ -248,6 +387,10 @@ export async function POST(request: NextRequest) {
           .update({ profanity_strikes: 0 })
           .eq('id', callerId)
 
+        if (breakerTripped.tripped && eventId) {
+          await autoDisableChat(supabaseAdmin, eventId, breakerTripped.reason || 'tier 3 spike')
+        }
+
         return NextResponse.json(
           {
             error:
@@ -255,6 +398,12 @@ export async function POST(request: NextRequest) {
           },
           { status: 403, headers: { 'X-Reason': 'AUTO_MUTED' } },
         )
+      }
+
+      // Still below threshold — but if the circuit breaker tripped on this
+      // flag, kill the chat anyway.
+      if (breakerTripped.tripped && eventId) {
+        await autoDisableChat(supabaseAdmin, eventId, breakerTripped.reason || 'tier 3 spike')
       }
 
       return NextResponse.json(
@@ -267,8 +416,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Clean content anyway as belt-and-braces (handles words added to filter later)
-    const finalContent = filterProfanity(content)
+    // Belt-and-braces: scrub any tier-3 words that might appear if someone
+    // added to the filter but an old string slipped through (edge case).
+    const finalContent = filterTier3(content)
 
     // ── Insert ─────────────────────────────────────────────────────────────
     const insertData = isGeneral

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCallerId } from '@/lib/api-auth'
-import { containsProfanity } from '@/lib/profanity-filter'
+import { isContentFlagged } from '@/lib/content-classifier'
 
 /**
  * Server-side profile save.
@@ -46,8 +46,9 @@ function validateName(raw: string): { ok: true; cleaned: string } | { ok: false;
     return { ok: false, error: 'No repitas partes del nombre' }
   }
 
-  // Profanity check
-  if (containsProfanity(trimmed)) {
+  // Profanity check — uses the tiered classifier, which catches
+  // classic swears, drug words, and any other flagged content.
+  if (isContentFlagged(trimmed)) {
     return { ok: false, error: 'El nombre contiene lenguaje inapropiado' }
   }
 
