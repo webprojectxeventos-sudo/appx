@@ -18,12 +18,20 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
   )
 }
 
-// Create Supabase client with service role for querying subscriptions
+// Create Supabase client with service role for querying subscriptions.
+// Hard-fail if the service key is missing — the silent anon-key fallback
+// caused moderation push notifications to die quietly (RLS blocked the
+// cross-user subscription reads needed to broadcast) instead of surfacing
+// the misconfig. Better to 503 and alert than lose moderation events.
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createClient(url, serviceKey || anonKey)
+  if (!url || !serviceKey) {
+    throw new Error('Push API misconfigured: SUPABASE_SERVICE_ROLE_KEY missing')
+  }
+  return createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 }
 
 // Create Supabase client with user's auth token to verify admin role

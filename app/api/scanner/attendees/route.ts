@@ -63,11 +63,18 @@ export async function GET(request: NextRequest) {
 
   const eventIds = (events || []).map(e => e.id)
 
+  // Defensive cap: a scanner covering a busy venue over its operational
+  // window (7d back / 30d ahead) could otherwise pull tens of thousands of
+  // ticket rows per bootstrap. 5000 fits comfortably in memory, covers a
+  // realistic venue's several-thousand-person night, and shields the DB
+  // pool from a single mobile scanner page-load.
+  const TICKET_HARD_CAP = 5000
   const { data: tickets, error } = await sb
     .from('tickets')
     .select('id, user_id, event_id, qr_code, status, scanned_at, created_at')
     .in('event_id', eventIds)
     .order('created_at', { ascending: false })
+    .limit(TICKET_HARD_CAP)
 
   if (error || !tickets) {
     return NextResponse.json({ error: error?.message || 'Failed to load tickets' }, { status: 500 })
