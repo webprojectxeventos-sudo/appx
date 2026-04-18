@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     })
     const { data: callerProfile } = await supabaseUser
       .from('users')
-      .select('role')
+      .select('role, organization_id')
       .eq('id', callerId)
       .single()
 
@@ -46,6 +46,47 @@ export async function POST(request: NextRequest) {
 
     const supabaseAdmin = createClient(url, serviceKey)
     const now = new Date().toISOString()
+
+    // Cross-org guard: admins can only nuke messages inside events in their
+    // own org. super_admin stays cross-org. Without this an admin in Org A
+    // could hit this endpoint with eventId pointing to Org B and wipe the
+    // other tenant's chat.
+    if (eventId && callerProfile.role !== 'super_admin') {
+      const { data: targetEvent } = await supabaseAdmin
+        .from('events')
+        .select('id, organization_id')
+        .eq('id', eventId)
+        .single()
+      if (!targetEvent) {
+        return NextResponse.json({ error: 'Evento no encontrado' }, { status: 404 })
+      }
+      if (!callerProfile.organization_id || targetEvent.organization_id !== callerProfile.organization_id) {
+        return NextResponse.json({ error: 'No tienes acceso a este evento' }, { status: 403 })
+      }
+    }
+
+    // When messageIds is used without eventId, also verify every target
+    // message belongs to an event in the caller's org (unless super_admin).
+    if (!eventId && messageIds && messageIds.length > 0 && callerProfile.role !== 'super_admin') {
+      if (!callerProfile.organization_id) {
+        return NextResponse.json({ error: 'No tienes acceso' }, { status: 403 })
+      }
+      const { data: msgs } = await supabaseAdmin
+        .from('messages')
+        .select('id, event_id')
+        .in('id', messageIds)
+      const eventIds = [...new Set((msgs || []).map((m) => m.event_id))]
+      if (eventIds.length > 0) {
+        const { data: evs } = await supabaseAdmin
+          .from('events')
+          .select('id, organization_id')
+          .in('id', eventIds)
+        const outOfOrg = (evs || []).some((e) => e.organization_id !== callerProfile.organization_id)
+        if (outOfOrg) {
+          return NextResponse.json({ error: 'No tienes acceso a uno o varios de estos mensajes' }, { status: 403 })
+        }
+      }
+    }
 
     let query = supabaseAdmin
       .from('messages')
