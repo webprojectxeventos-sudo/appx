@@ -239,12 +239,19 @@ export default function CommsPage() {
     })
   }, [])
 
-  // Fetch moderation messages
+  // Fetch moderation messages.
+  //
+  // NOTE on deps: `activeEventIdsKey` is a stable string of all event IDs in
+  // the current view. Using `activeEvents.length` here (the prior bug) meant
+  // switching from one venue to another with the same event count would keep
+  // the OLD event IDs in the closure — the UI looked like it changed but
+  // kept showing messages from the old venue.
+  const activeEventIdsKey = activeEvents.map(e => e.id).sort().join(',')
   const fetchModMessages = useCallback(async () => {
-    if (activeTab !== 'moderation' || activeEvents.length === 0) { setModMessages([]); setModTotal(0); return }
+    if (activeTab !== 'moderation' || activeEventIdsKey === '') { setModMessages([]); setModTotal(0); return }
     setModLoading(true)
     try {
-      const eventIds = activeEvents.map(e => e.id)
+      const eventIds = activeEventIdsKey.split(',')
       let query = supabase.from('messages').select('*', { count: 'exact' }).in('event_id', eventIds).is('deleted_at', null).order('created_at', { ascending: false })
       if (modSearch.trim()) query = query.ilike('content', `%${modSearch.trim()}%`)
       const from = (modPage - 1) * PAGE_SIZE
@@ -259,15 +266,16 @@ export default function CommsPage() {
     } finally {
       setModLoading(false)
     }
-  }, [activeTab, activeEvents.length, modSearch, modPage, resolveUserNames])
+  }, [activeTab, activeEventIdsKey, modSearch, modPage, resolveUserNames])
 
   useEffect(() => { fetchModMessages() }, [fetchModMessages])
   useEffect(() => { setModPage(1) }, [modSearch])
 
-  // Muted users + banned users
+  // Muted users + banned users. Same stale-dep fix as fetchModMessages —
+  // closure must key on the actual IDs, not just the count.
   const fetchMutedAndBanned = useCallback(async () => {
-    const eventIds = activeEvents.map(e => e.id)
-    if (eventIds.length === 0) return
+    if (activeEventIdsKey === '') return
+    const eventIds = activeEventIdsKey.split(',')
     const [mutedRes, bannedRes] = await Promise.all([
       supabase.from('user_events').select('user_id').in('event_id', eventIds).eq('is_muted', true),
       supabase.from('chat_bans').select('*').in('event_id', eventIds).eq('is_active', true),
@@ -278,7 +286,7 @@ export default function CommsPage() {
       bannedRes.data.forEach(b => map.set(b.user_id, b))
       setBannedUsers(map)
     }
-  }, [activeEvents.length])
+  }, [activeEventIdsKey])
 
   useEffect(() => { if (activeTab === 'moderation') fetchMutedAndBanned() }, [activeTab, fetchMutedAndBanned])
 
@@ -287,16 +295,25 @@ export default function CommsPage() {
     setChatDisabledEventIds(new Set(allEvents.filter(e => e.chat_enabled === false).map(e => e.id)))
   }, [allEvents])
 
-  // Toggle kill-switch for an event. RLS allows super_admin / admin / group_admin
-  // to update events.chat_enabled.
+  // Toggle kill-switch for an event. Routes through /api/admin/chat-enabled
+  // (service role) instead of a direct supabase update — that way RLS edge
+  // cases can never silently block an urgent moderation action.
   const handleToggleChatEnabled = async (eventId: string) => {
     const currentlyDisabled = chatDisabledEventIds.has(eventId)
     const nextEnabled = currentlyDisabled  // flip: disabled → enable
-    const { error } = await supabase
-      .from('events')
-      .update({ chat_enabled: nextEnabled })
-      .eq('id', eventId)
-    if (error) { showError('Error al cambiar el chat'); return }
+    try {
+      const res = await authFetch('/api/admin/chat-enabled', { eventId, enabled: nextEnabled })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('[chat-enabled] HTTP', res.status, body)
+        showError(body?.error || 'Error al cambiar el chat')
+        return
+      }
+    } catch (err) {
+      console.error('[chat-enabled] Network error:', err)
+      showError('Error de red al cambiar el chat')
+      return
+    }
     setChatDisabledEventIds(prev => {
       const next = new Set(prev)
       if (nextEnabled) next.delete(eventId)
