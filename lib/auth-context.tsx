@@ -141,7 +141,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const { data: ev } = await supabase.from('events').select('organization_id').eq('id', meta.event_id).single()
           if (ev) orgId = ev.organization_id
         }
-        const { data: created, error: createErr } = await supabase.from('users').upsert({
+
+        // INSERT only (not upsert). If the row already exists — e.g. RLS
+        // hid it from the initial SELECT, or a parallel tab just created
+        // it — ON CONFLICT would UPDATE all columns including full_name,
+        // which the moderation migration locked down (users can't rename
+        // themselves post-verification). Splitting into INSERT + fallback
+        // SELECT means we never touch full_name on existing rows.
+        const { error: createErr } = await supabase.from('users').insert({
           id: authUser.id,
           email: authUser.email || '',
           full_name: meta.full_name || meta.name || authUser.email?.split('@')[0] || '',
@@ -149,9 +156,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: 'attendee',
           event_id: meta.event_id || null,
           organization_id: orgId,
-        }, { onConflict: 'id' }).select().single()
+        })
 
-        if (createErr || !created) {
+        let created: UserProfile | null = null
+        if (!createErr) {
+          const { data } = await supabase.from('users').select('*').eq('id', authUser.id).single()
+          created = data
+        } else {
+          // 23505 = unique_violation → row already exists. Read it as-is.
+          const code = (createErr as { code?: string }).code
+          const msg = createErr.message.toLowerCase()
+          const isDuplicate = code === '23505' || msg.includes('duplicate') || msg.includes('unique')
+          if (isDuplicate) {
+            const { data } = await supabase.from('users').select('*').eq('id', authUser.id).single()
+            created = data
+          }
+        }
+
+        if (!created) {
           console.error('[Auth] Could not recover profile:', createErr?.message)
           return false
         }
