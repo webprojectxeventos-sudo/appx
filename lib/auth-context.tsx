@@ -205,13 +205,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const init = async () => {
+      // Timeout of 8s — if getSession() hangs (e.g. expired token + unreachable refresh endpoint),
+      // fall through to "no session" and let the user re-login. Without this the app hangs on the
+      // splash screen forever. Cold starts are usually 1-3s on Supabase free tier; 8s is a wide margin.
+      //
+      // IMPORTANT: The cleanup (localStorage wipe) must ONLY run when the timeout actually wins
+      // the race. Previously the setTimeout fired unconditionally at 8s, wiping sb-* tokens
+      // even when getSession() had already resolved successfully — which killed fresh login
+      // sessions and, crucially, password-recovery sessions (the user sees "Auth session
+      // missing!" when they click Guardar contraseña ~10s after landing on /reset-password).
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
+      let timeoutFired = false
       try {
-        // Timeout of 8s — if getSession() hangs (e.g. expired token + unreachable refresh endpoint),
-        // fall through to "no session" and let the user re-login. Without this the app hangs on the
-        // splash screen forever. Cold starts are usually 1-3s on Supabase free tier; 8s is a wide margin.
         const sessionPromise = supabase.auth.getSession()
-        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
-          setTimeout(() => {
+        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) => {
+          timeoutId = setTimeout(() => {
+            timeoutFired = true
             console.warn('[Auth] getSession() timed out after 8s — treating as no session')
             // Proactively clear any stale auth tokens so the next boot is clean
             try {
@@ -223,8 +232,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
             resolve({ data: { session: null } })
           }, 8000)
-        )
+        })
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise])
+
+        // Cancel the pending wipe — getSession() resolved in time.
+        if (!timeoutFired && timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
 
         if (cancelled) return
 
@@ -252,6 +267,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('[Auth] Init error:', err)
       } finally {
+        // Defensive cleanup — no matter what path the try/catch took, make
+        // sure we never leave an 8s wipe-timer armed. If the outer timeout
+        // already fired, clearTimeout on an elapsed id is a no-op.
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
         if (!cancelled) {
           setLoading(false)
           setInitialized(true) // Ensure initialized on all code paths
