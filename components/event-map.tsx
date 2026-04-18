@@ -57,13 +57,29 @@ export function EventMap({ latitude, longitude, location }: EventMapProps) {
   const [showPicker, setShowPicker] = useState(false)
 
   useEffect(() => {
-    if (!mapRef.current || mapInstance.current) return
+    if (!mapRef.current) return
+
+    // React 19 StrictMode + Fast Refresh both fire this effect twice in rapid
+    // succession. The async initMap below hasn't assigned `mapInstance.current`
+    // by the time the second invocation runs, so a naive check on the ref
+    // doesn't catch the race. Leaflet tags the container with `_leaflet_id`
+    // once attached — reuse that as the real source of truth.
+    const container = mapRef.current as HTMLDivElement & { _leaflet_id?: number }
+    if (container._leaflet_id) return
+
+    let cancelled = false
+    let localMap: { remove: () => void } | null = null
 
     const initMap = async () => {
       const L = (await import('leaflet')).default
       await import('leaflet/dist/leaflet.css')
 
-      const map = L.map(mapRef.current!, {
+      // Re-check after the async gap — the effect may have been cleaned up or
+      // another invocation may have won the race.
+      if (cancelled || !mapRef.current) return
+      if ((mapRef.current as HTMLDivElement & { _leaflet_id?: number })._leaflet_id) return
+
+      const map = L.map(mapRef.current, {
         center: [latitude, longitude],
         zoom: 15,
         zoomControl: false,
@@ -86,16 +102,25 @@ export function EventMap({ latitude, longitude, location }: EventMapProps) {
       })
 
       L.marker([latitude, longitude], { icon }).addTo(map)
+
+      // If we got cancelled while the async work was in flight, tear down
+      // immediately instead of leaving an orphan map alive.
+      if (cancelled) {
+        map.remove()
+        return
+      }
+      localMap = map
       mapInstance.current = map
     }
 
     initMap()
 
     return () => {
-      if (mapInstance.current) {
-        (mapInstance.current as { remove: () => void }).remove()
-        mapInstance.current = null
-      }
+      cancelled = true
+      const toRemove = (mapInstance.current ?? localMap) as { remove: () => void } | null
+      if (toRemove) toRemove.remove()
+      mapInstance.current = null
+      localMap = null
     }
   }, [latitude, longitude])
 
