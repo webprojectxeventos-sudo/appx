@@ -378,7 +378,11 @@ export default function GalleryPage() {
   }
 
   // ─── Empty state ───
-  if (allPhotos.length === 0) {
+  // Only show the "no photos" message when there are NO featured photos AND
+  // no Dropbox folder either. If a Dropbox marker row exists (dropboxUrl set),
+  // we fall through to the main render so the IG gate / Dropbox CTA show up
+  // even when there are zero featured photos.
+  if (allPhotos.length === 0 && !dropboxUrl) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] animate-fade-in">
         <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
@@ -399,9 +403,11 @@ export default function GalleryPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-gradient-primary">Galeria</h2>
-        <span className="btn-gold text-xs font-medium px-3 py-1 rounded-full">
-          {allPhotos.length} foto{allPhotos.length !== 1 ? 's' : ''}
-        </span>
+        {allPhotos.length > 0 && (
+          <span className="btn-gold text-xs font-medium px-3 py-1 rounded-full">
+            {allPhotos.length} foto{allPhotos.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       {/* Aftermovie — shows when admin sets video_url on event */}
