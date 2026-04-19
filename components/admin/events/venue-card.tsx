@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { Layers, PartyPopper, GraduationCap, Trash2, MapPin, ChevronDown } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Layers, PartyPopper, GraduationCap, Trash2, MapPin, ChevronDown, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import { GroupRow } from './group-row'
 import { QuickAddInput } from './quick-add-input'
 import { BatchAddModal } from './batch-add-modal'
+import { VenuePhotosModal } from './venue-photos-modal'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
@@ -29,11 +31,49 @@ interface VenueCardProps {
 
 export function VenueCard({ venue, groups, otherVenues, date, organizationId, userId, onRefresh, onMutate, onSelectGroup, onDeleteVenue, compact }: VenueCardProps) {
   const [showBatch, setShowBatch] = useState(false)
+  const [showPhotos, setShowPhotos] = useState(false)
   const [expanded, setExpanded] = useState(true)
+
+  // Tracks photo state for (venue, date) so the button can show a live badge
+  // without opening the modal. Shared across all institutes at the same
+  // venue+date since that's how the photos table is keyed.
+  const [photosInfo, setPhotosInfo] = useState<{ hasDropbox: boolean; featuredCount: number }>({
+    hasDropbox: false,
+    featuredCount: 0,
+  })
+
+  const refreshPhotosInfo = useCallback(async () => {
+    if (!venue.id || !date) return
+    try {
+      const { data, error } = await supabase
+        .from('photos')
+        .select('id,caption')
+        .eq('venue_id', venue.id)
+        .eq('photo_date', date)
+      if (error) return
+      const rows = data || []
+      setPhotosInfo({
+        hasDropbox: rows.some(p => p.caption === '_dropbox_folder'),
+        featuredCount: rows.filter(p => p.caption !== '_dropbox_folder').length,
+      })
+    } catch {
+      // swallow — badge is a nice-to-have, not critical
+    }
+  }, [venue.id, date])
+
+  useEffect(() => { refreshPhotosInfo() }, [refreshPhotosInfo])
+
+  // When the modal closes, re-read so the badge reflects the admin's edits
+  const handleClosePhotos = useCallback(() => {
+    setShowPhotos(false)
+    refreshPhotosInfo()
+  }, [refreshPhotosInfo])
 
   const eventType: 'eso' | 'fiesta' = groups.length > 0
     ? (groups.filter(g => g.event_type === 'eso').length > groups.length / 2 ? 'eso' : 'fiesta')
     : 'fiesta'
+
+  const photosConfigured = photosInfo.hasDropbox || photosInfo.featuredCount > 0
 
   // ── Compact / list mode ──
   if (compact) {
@@ -56,6 +96,22 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
             )}>
               {eventType === 'fiesta' ? <PartyPopper className="w-3 h-3" /> : <GraduationCap className="w-3 h-3" />}
               {eventType === 'fiesta' ? 'Fiesta' : 'ESO'}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); setShowPhotos(true) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setShowPhotos(true) } }}
+              className={cn(
+                'flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg shrink-0 transition-colors cursor-pointer',
+                photosConfigured
+                  ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                  : 'bg-white/5 text-white-muted hover:bg-white/10 hover:text-white',
+              )}
+              title="Fotos · compartidas por todos los institutos del venue en esta fecha"
+            >
+              <ImageIcon className="w-3 h-3" />
+              {photosInfo.featuredCount > 0 ? photosInfo.featuredCount : photosInfo.hasDropbox ? '●' : ''}
             </span>
             <span className="text-xs font-bold text-white bg-white/10 px-2 py-0.5 rounded-lg shrink-0">
               {groups.length}
@@ -96,6 +152,7 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
           )}
         </div>
         <BatchAddModal open={showBatch} onClose={() => setShowBatch(false)} venueId={venue.id} venueName={venue.name} date={date} eventType={eventType} organizationId={organizationId} userId={userId} onCreated={onRefresh} onMutate={onMutate} />
+        <VenuePhotosModal open={showPhotos} onClose={handleClosePhotos} venueId={venue.id} venueName={venue.name} date={date} />
       </>
     )
   }
@@ -142,6 +199,23 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
                 {eventType === 'fiesta' ? <PartyPopper className="w-3.5 h-3.5" /> : <GraduationCap className="w-3.5 h-3.5" />}
                 {eventType === 'fiesta' ? 'Fiesta' : 'ESO'}
               </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowPhotos(true) }}
+                className={cn(
+                  'flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg backdrop-blur-sm transition-colors',
+                  photosConfigured
+                    ? 'bg-primary/20 text-primary hover:bg-primary/30'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20',
+                )}
+                title="Fotos · compartidas por todos los institutos del venue en esta fecha"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                {photosInfo.featuredCount > 0
+                  ? photosInfo.featuredCount
+                  : photosInfo.hasDropbox
+                    ? '●'
+                    : 'Fotos'}
+              </button>
               <span className="flex items-center gap-1 text-xs font-bold text-white bg-white/10 px-2.5 py-1 rounded-lg backdrop-blur-sm">
                 <Layers className="w-3.5 h-3.5" />
                 {groups.length}
@@ -219,6 +293,13 @@ export function VenueCard({ venue, groups, otherVenues, date, organizationId, us
         userId={userId}
         onCreated={onRefresh}
         onMutate={onMutate}
+      />
+      <VenuePhotosModal
+        open={showPhotos}
+        onClose={handleClosePhotos}
+        venueId={venue.id}
+        venueName={venue.name}
+        date={date}
       />
     </>
   )

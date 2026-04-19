@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Image as ImageIcon, Users, Clock, Calendar, Check, Trash2, Loader2, AlertTriangle } from 'lucide-react'
+import { X, KeyRound, BarChart3, ClipboardList, Music, CalendarClock, Users, Clock, Calendar, Check, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 import { cn, toLocalDateKey } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/auth-fetch'
@@ -12,12 +12,16 @@ import { PollsTab } from './tabs/polls-tab'
 import { SurveysTab } from './tabs/surveys-tab'
 import { PlaylistTab } from './tabs/playlist-tab'
 import { ScheduleTab } from './tabs/schedule-tab'
-import { PhotosTab } from './tabs/photos-tab'
 import { AttendeesTab } from './tabs/attendees-tab'
 import type { Database } from '@/lib/types'
 
 type Event = Database['public']['Tables']['events']['Row']
 
+// NOTE: Photos management lives at the venue+date level now (see VenueCard
+// + VenuePhotosModal). The "Fotos" data is keyed by (venue_id, photo_date)
+// in the DB and shared across every institute at the same venue on the same
+// date, so showing it per-group/event here was misleading — admins would
+// think they had to paste the Dropbox link for every institute separately.
 const TABS = [
   { id: 'attendees', label: 'Asistentes', icon: Users },
   { id: 'codes', label: 'Codigos', icon: KeyRound },
@@ -25,7 +29,6 @@ const TABS = [
   { id: 'surveys', label: 'Encuestas', icon: ClipboardList },
   { id: 'playlist', label: 'Playlist', icon: Music },
   { id: 'schedule', label: 'Programa', icon: CalendarClock },
-  { id: 'photos', label: 'Fotos', icon: ImageIcon },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -306,13 +309,6 @@ export function GroupDetailDrawer({ event, venueName, date, onClose, onRefresh }
           {activeTab === 'surveys' && <SurveysTab eventId={event.id} />}
           {activeTab === 'playlist' && <PlaylistTab eventId={event.id} />}
           {activeTab === 'schedule' && <ScheduleTab eventId={event.id} />}
-          {activeTab === 'photos' && event.venue_id && date && <PhotosTab venueId={event.venue_id} date={date} />}
-          {activeTab === 'photos' && (!event.venue_id || !date) && (
-            <div className="py-8 text-center">
-              <ImageIcon className="w-8 h-8 mx-auto mb-2 text-white-muted" />
-              <p className="text-white-muted text-sm">Este grupo no tiene venue asignado</p>
-            </div>
-          )}
         </div>
 
         {/* Delete Event Confirmation */}
