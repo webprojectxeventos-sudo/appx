@@ -6,7 +6,7 @@ import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loa
 import { useAuth } from '@/lib/auth-context'
 import { downloadWithWatermark, shareWithWatermark } from '@/lib/watermark'
 import { supabase } from '@/lib/supabase'
-import { cn } from '@/lib/utils'
+import { cn, toLocalDateKey } from '@/lib/utils'
 import type { Database } from '@/lib/types'
 
 const IG_URL = 'https://www.instagram.com/tugraduacionmadrid/'
@@ -224,7 +224,14 @@ export default function GalleryPage() {
   const [dropboxUrl, setDropboxUrl] = useState<string | null>(null)
 
   // Fetch photo metadata — scoped to venue+date (current event) or event_id (legacy)
-  const eventDate = event?.date ?? null
+  //
+  // IMPORTANT: `photos.photo_date` is a DATE column keyed by the LOCAL calendar
+  // date that the admin chose (see photos-tab.tsx + events/page.tsx, both use
+  // toLocalDateKey). `event.date` is a full timestamptz in UTC, so comparing it
+  // directly casts to the UTC calendar day — which is one day BEHIND local for
+  // events that start at 00:00 Europe/Madrid (Madrid is UTC+1/+2). That silently
+  // filters out the admin's row. Convert to the local key to match.
+  const eventDate = event?.date ? toLocalDateKey(event.date) : null
 
   useEffect(() => {
     if (!venue?.id && !event?.id) return
