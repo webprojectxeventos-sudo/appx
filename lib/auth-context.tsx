@@ -34,6 +34,8 @@ interface AuthContextType {
   isPromoter: boolean
   isCloakroom: boolean
   isStaff: boolean // super_admin | admin | group_admin | scanner | promoter | cloakroom
+  igUnlocked: boolean // true once user has declared following @tugraduacionmadrid on IG
+  markIgUnlocked: () => Promise<void> // honor-system unlock for Dropbox album gate
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   switchEvent: (eventId: string) => Promise<void>
@@ -49,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<UserEventMembership[]>([])
   const [venue, setVenue] = useState<Venue | null>(null)
   const [organization, setOrganization] = useState<Organization | null>(null)
+  const [igUnlocked, setIgUnlocked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState(false)
   const loadedUserId = useRef<string | null>(null)
@@ -97,6 +100,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })))
         } else { setEvents([]) }
       } catch (err) { console.warn('[Auth] Memberships load failed (non-fatal):', err) }
+    })()
+
+    // Instagram unlock state — non-blocking, silently defaults to false on error.
+    // RLS guarantees user can only read their own row.
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('user_ig_unlocks')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle()
+        setIgUnlocked(Boolean(data))
+      } catch { setIgUnlocked(false) }
     })()
 
     // Push notifications (fire-and-forget)
@@ -223,6 +239,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadUserData(user)
   }, [user, loadUserData])
 
+  // Honor-system unlock for the Dropbox album gate. Optimistic local flip first
+  // so UI feels instant; the insert runs in the background. If it fails (offline,
+  // RLS hiccup) the user still sees the unlocked state this session, and the
+  // next session the DB fetch will return false — they'll just see the gate
+  // again and can tap "He seguido" one more time. No harm, no double-write
+  // because the INSERT uses upsert semantics via the primary-key conflict.
+  const markIgUnlocked = useCallback(async () => {
+    if (!user) return
+    setIgUnlocked(true) // optimistic
+    try {
+      const { error } = await supabase
+        .from('user_ig_unlocks')
+        .insert({ user_id: user.id })
+      // 23505 = unique_violation → already unlocked, fine.
+      if (error && (error as { code?: string }).code !== '23505') {
+        console.warn('[Auth] markIgUnlocked insert failed (non-fatal):', error.message)
+      }
+    } catch (err) {
+      console.warn('[Auth] markIgUnlocked error (non-fatal):', err)
+    }
+  }, [user])
+
   useEffect(() => {
     let cancelled = false
 
@@ -316,6 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setVenue(null)
           setEvents([])
           setOrganization(null)
+          setIgUnlocked(false)
           loadedUserId.current = null
           isLoadingRef.current = false
           setLoading(false)
@@ -405,6 +444,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setVenue(null)
     setEvents([])
     setOrganization(null)
+    setIgUnlocked(false)
     router.push('/login')
   }, [router, user])
 
@@ -423,6 +463,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user, profile, event, events, venue, organization,
       loading, initialized,
       isSuperAdmin, isAdmin, isGroupAdmin, isScanner, isPromoter, isCloakroom, isStaff,
+      igUnlocked, markIgUnlocked,
       signOut, refreshProfile, switchEvent,
     }}>
       {children}

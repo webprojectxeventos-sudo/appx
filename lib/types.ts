@@ -805,6 +805,21 @@ export type Database = {
         }
         Relationships: []
       }
+      user_ig_unlocks: {
+        Row: {
+          user_id: string
+          unlocked_at: string
+        }
+        Insert: {
+          user_id: string
+          unlocked_at?: string
+        }
+        Update: {
+          user_id?: string
+          unlocked_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

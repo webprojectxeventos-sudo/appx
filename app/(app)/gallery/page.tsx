@@ -2,12 +2,108 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import NextImage from 'next/image'
-import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2, ExternalLink, Film, Play } from 'lucide-react'
+import { Image as ImageIcon, ChevronLeft, ChevronRight, X, Download, Share2, Loader2, ExternalLink, Film, Play, Lock } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { downloadWithWatermark, shareWithWatermark } from '@/lib/watermark'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/types'
+
+const IG_URL = 'https://www.instagram.com/tugraduacionmadrid/'
+
+// Minimal IG icon — duplicated from home/page.tsx to avoid a refactor.
+// If we add a shared icon barrel later, move both there.
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  )
+}
+
+// Gate for the full Dropbox album. Two visual states:
+//   1. Idle:    "Para descargar tus fotos síguenos en IG" + [Abrir Instagram]
+//   2. Return:  "¿Ya nos sigues?" + [Sí, desbloquear] [Todavía no]
+//
+// The transition from (1) → (2) happens as soon as the user taps the Open
+// button — we don't try to wait for visibilitychange because on mobile the IG
+// deep-link takes over the tab and the event timing is unreliable. The user
+// asked for "inmediatamente al volver", so we flip the UI right away and let
+// them confirm once they're back.
+function InstagramFollowGate({
+  onUnlock,
+}: {
+  onUnlock: () => void | Promise<void>
+}) {
+  const [returned, setReturned] = useState(false)
+
+  const handleOpen = () => {
+    // target=_blank + noopener handles both desktop tabs and mobile deep-links
+    window.open(IG_URL, '_blank', 'noopener,noreferrer')
+    setReturned(true)
+  }
+
+  return (
+    <div className="mt-4 mb-2 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#833AB4]/10 via-[#FD1D1D]/8 to-[#FCAF45]/10">
+      {/* decorative gradient ring */}
+      <div className="absolute inset-0 opacity-[0.18] pointer-events-none">
+        <div className="absolute -top-16 -left-16 w-40 h-40 rounded-full bg-gradient-to-br from-[#833AB4] to-[#FD1D1D] blur-2xl" />
+        <div className="absolute -bottom-16 -right-16 w-40 h-40 rounded-full bg-gradient-to-br from-[#FD1D1D] to-[#FCAF45] blur-2xl" />
+      </div>
+
+      <div className="relative p-5 flex flex-col items-center text-center">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#833AB4] via-[#FD1D1D] to-[#FCAF45] flex items-center justify-center mb-3 shadow-lg shadow-[#FD1D1D]/20">
+          <InstagramIcon className="w-6 h-6 text-white" />
+        </div>
+
+        {returned ? (
+          <>
+            <h3 className="text-base font-bold text-white mb-1">¿Ya nos sigues?</h3>
+            <p className="text-white-muted text-xs mb-4">
+              Pulsa <span className="text-white font-medium">Sí</span> y te damos acceso al álbum completo.
+            </p>
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={() => setReturned(false)}
+                className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white-muted text-sm font-medium hover:bg-white/10 active:scale-[0.98] transition-all"
+              >
+                Todavía no
+              </button>
+              <button
+                onClick={() => onUnlock()}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#833AB4] via-[#FD1D1D] to-[#FCAF45] text-white text-sm font-semibold shadow-lg shadow-[#FD1D1D]/25 hover:shadow-[#FD1D1D]/40 active:scale-[0.98] transition-all"
+              >
+                Sí, desbloquear
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white-muted mb-1.5">
+              <Lock className="w-3 h-3" />
+              Álbum completo bloqueado
+            </div>
+            <h3 className="text-base font-bold text-white mb-1.5">
+              Para descargar tus fotos, síguenos en Instagram
+            </h3>
+            <p className="text-white-muted text-xs mb-4">
+              @tugraduacionmadrid
+            </p>
+            <button
+              onClick={handleOpen}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#833AB4] via-[#FD1D1D] to-[#FCAF45] text-white text-sm font-semibold shadow-lg shadow-[#FD1D1D]/25 hover:shadow-[#FD1D1D]/40 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              <InstagramIcon className="w-4 h-4" />
+              Abrir Instagram
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 type Photo = Database['public']['Tables']['photos']['Row']
 
@@ -115,7 +211,7 @@ const BATCH_SIZE = 20
 
 
 export default function GalleryPage() {
-  const { event, venue, loading: authLoading } = useAuth()
+  const { event, venue, loading: authLoading, isStaff, igUnlocked, markIgUnlocked } = useAuth()
   const [allPhotos, setAllPhotos] = useState<Photo[]>([])
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
   const [loading, setLoading] = useState(true)
@@ -378,8 +474,10 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {/* Dropbox CTA */}
-      {dropboxUrl && (
+      {/* Dropbox CTA — gated behind IG follow for attendees.
+          Staff (admin, scanner, promoter, etc.) and attendees who have already
+          unlocked see the direct button. Everyone else sees the follow-gate. */}
+      {dropboxUrl && (isStaff || igUnlocked) && (
         <div className="mt-4 mb-2">
           <a
             href={dropboxUrl}
@@ -391,6 +489,10 @@ export default function GalleryPage() {
             Ver todas las fotos en Dropbox
           </a>
         </div>
+      )}
+
+      {dropboxUrl && !isStaff && !igUnlocked && (
+        <InstagramFollowGate onUnlock={markIgUnlocked} />
       )}
 
       {/* ─── Fullscreen Lightbox ─── */}
