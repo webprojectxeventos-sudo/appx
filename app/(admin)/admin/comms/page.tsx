@@ -517,7 +517,10 @@ export default function CommsPage() {
           m.deleted_at && '[ELIMINADO]',
         ].filter(Boolean).join(' ')
         const name = u?.name || 'Usuario'
-        lines.push(`[${time}] ${name}${flags ? ' ' + flags : ''}`)
+        const emailStr = u?.email ? ` <${u.email}>` : ''
+        // Email on the SAME line as the name — police/admin needs to trace each
+        // individual message back to a person without hunting in the header.
+        lines.push(`[${time}] ${name}${emailStr}${flags ? ' ' + flags : ''}`)
         // Indent message body 3 spaces so it reads as a block under the header
         m.content.split('\n').forEach(line => lines.push(`   ${line}`))
         lines.push('')
@@ -643,7 +646,8 @@ export default function CommsPage() {
           m.deleted_at && '[ELIMINADO]',
         ].filter(Boolean).join(' ')
         const name = u?.name || 'Usuario'
-        lines.push(`[${time}] ${name}${flags ? ' ' + flags : ''}`)
+        const emailStr = u?.email ? ` <${u.email}>` : ''
+        lines.push(`[${time}] ${name}${emailStr}${flags ? ' ' + flags : ''}`)
         m.content.split('\n').forEach(line => lines.push(`   ${line}`))
         lines.push('')
       }
@@ -786,7 +790,8 @@ export default function CommsPage() {
           m.deleted_at && '[ELIMINADO]',
         ].filter(Boolean).join(' ')
         const name = u?.name || 'Usuario'
-        lines.push(`[${time}] [${ctx}] ${name}${flags ? ' ' + flags : ''}`)
+        const emailStr = u?.email ? ` <${u.email}>` : ''
+        lines.push(`[${time}] [${ctx}] ${name}${emailStr}${flags ? ' ' + flags : ''}`)
         m.content.split('\n').forEach(line => lines.push(`   ${line}`))
         lines.push('')
       }
