@@ -841,6 +841,17 @@ export type Database = {
         Args: { p_user_id: string; p_event_id: string }
         Returns: string
       }
+      redeem_access_code: {
+        Args: { code_text: string }
+        Returns: {
+          ok: boolean
+          error?: string
+          already_redeemed?: boolean
+          event_id?: string
+          event_title?: string
+          event_date?: string | null
+        }
+      }
       get_user_visible_events: {
         Args: { p_user_id: string }
         Returns: string[]
