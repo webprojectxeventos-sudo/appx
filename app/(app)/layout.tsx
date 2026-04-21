@@ -138,13 +138,9 @@ function AppHeader() {
             Project X
           </h1>
           {event && (
-            <Link
-              href="/events"
-              className="block text-white-muted text-[11px] leading-tight truncate max-w-[180px] hover:text-white transition-colors"
-              title="Cambiar de evento o unirse a otro"
-            >
+            <p className="text-white-muted text-[11px] leading-tight truncate max-w-[180px]">
               {event.title} <span className="text-gold">&middot;</span> TuGraduacion
-            </Link>
+            </p>
           )}
         </div>
       </div>

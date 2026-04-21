@@ -22,6 +22,8 @@ import {
   FileDown,
   Play,
   Film,
+  Ticket,
+  Plus,
 } from 'lucide-react'
 
 function InstagramIcon({ className }: { className?: string }) {
@@ -791,6 +793,30 @@ export default function HomePage() {
             <p className="text-white text-xs font-medium">Bolt</p>
           </a>
         </div>
+      </div>
+
+      {/* Mis eventos — entry point para canjear otro codigo */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Ticket className="w-4 h-4 text-gold" />
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-white-muted">Mis eventos</h2>
+        </div>
+        <Link
+          href="/events"
+          className="card p-4 flex items-center gap-3 active:scale-95 transition-all hover:border-white/15"
+        >
+          <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/25 flex items-center justify-center flex-shrink-0">
+            <Ticket className="w-5 h-5 text-gold" strokeWidth={2} />
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gold/90 text-black text-[9px] font-bold flex items-center justify-center shadow-[0_0_8px_rgba(212,168,67,0.4)]">
+              <Plus className="w-2.5 h-2.5" strokeWidth={3.5} />
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-medium leading-tight">Tengo otro codigo</p>
+            <p className="text-white-muted text-[11px] mt-0.5 leading-snug">Anade otra graduacion o fiesta</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-white-muted flex-shrink-0" />
+        </Link>
       </div>
 
       {/* Social Links */}
