@@ -28,50 +28,66 @@ function ScannerContent() {
       {/* Aggregate stats for the currently-selected scope */}
       <StatsBar />
 
-      {/* Tab switcher — gradient on active, subtle shadow, icon pops */}
-      <div className="flex gap-1 p-1 bg-white/[0.04] rounded-xl border border-white/[0.06]">
+      {/* Tab switcher — gradient azul-índigo on active, glass-soft container.
+          Misma estética que entradas.projectxeventos.es: el tab activo pesa
+          más visualmente gracias al gradiente + shadow-soft, el resto se
+          quedan como texto gris claro. */}
+      <div
+        role="tablist"
+        aria-label="Modo del scanner"
+        className="flex gap-1 p-1 bg-white/70 backdrop-blur-sm border border-gray-200/70 rounded-xl shadow-soft"
+      >
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'scan'}
           onClick={() => setTab('scan')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all duration-200',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200',
             tab === 'scan'
-              ? 'bg-gradient-to-br from-primary to-red-700 text-white shadow-[0_4px_14px_rgba(228,30,43,0.35)]'
-              : 'text-white/50 hover:text-white/70',
+              ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-soft'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-white/60',
           )}
         >
-          <QrCode className={cn('w-3.5 h-3.5', tab === 'scan' && 'drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]')} />
+          <QrCode className="w-3.5 h-3.5" />
           Escanear
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'door'}
           onClick={() => setTab('door')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all duration-200',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200',
             tab === 'door'
-              ? 'bg-gradient-to-br from-primary to-red-700 text-white shadow-[0_4px_14px_rgba(228,30,43,0.35)]'
-              : 'text-white/50 hover:text-white/70',
+              ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-soft'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-white/60',
           )}
         >
-          <DoorOpen className={cn('w-3.5 h-3.5', tab === 'door' && 'drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]')} />
+          <DoorOpen className="w-3.5 h-3.5" />
           Puerta
           {doorCount > 0 && (
             <span className={cn(
               'text-[9px] px-1.5 py-0.5 rounded-full tabular-nums font-bold',
-              tab === 'door' ? 'bg-white/25 text-white' : 'bg-amber-500/20 text-amber-300',
+              tab === 'door' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-700',
             )}>
               {doorCount}
             </span>
           )}
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'list'}
           onClick={() => setTab('list')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all duration-200',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200',
             tab === 'list'
-              ? 'bg-gradient-to-br from-primary to-red-700 text-white shadow-[0_4px_14px_rgba(228,30,43,0.35)]'
-              : 'text-white/50 hover:text-white/70',
+              ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-soft'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-white/60',
           )}
         >
-          <Users className={cn('w-3.5 h-3.5', tab === 'list' && 'drop-shadow-[0_0_6px_rgba(255,255,255,0.5)]')} />
+          <Users className="w-3.5 h-3.5" />
           Lista
         </button>
       </div>

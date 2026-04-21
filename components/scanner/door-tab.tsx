@@ -24,6 +24,17 @@ type DoorResult = {
   queued?: boolean
 }
 
+/**
+ * DoorTab — formulario de registro de asistentes que pagan en puerta.
+ *
+ * Diseño claro inspirado en entradas.projectxeventos.es:
+ *   - Panel principal en glass-strong + rounded-2xl + shadow-soft
+ *   - Inputs con border-gray-200 / focus:ring blue para foco claro
+ *   - Botón primario con gradient blue→indigo (mismo accent que el resto)
+ *   - Feedback cards en emerald-50 (OK) / red-50 (error) — colores aireados
+ *   - Lista de recientes en glass-strong con chips amber para la etiqueta
+ *     "PUERTA" (semántico: pago presencial)
+ */
 export function DoorTab() {
   const {
     eventsByDay,
@@ -154,15 +165,15 @@ export function DoorTab() {
 
   return (
     <div className="space-y-4">
-      <div className="card p-5 space-y-4">
+      <div className="glass-strong rounded-2xl shadow-soft p-5 space-y-4">
         {/* Header */}
         <div className="flex items-center gap-2.5 mb-1">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <UserPlus className="w-5 h-5 text-primary" />
+          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+            <UserPlus className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white">Registro en puerta</h3>
-            <p className="text-[11px] text-white-muted">
+            <h3 className="text-sm font-bold text-gray-900">Registro en puerta</h3>
+            <p className="text-[11px] text-gray-500">
               Para asistentes que pagan en la entrada
             </p>
           </div>
@@ -174,7 +185,7 @@ export function DoorTab() {
           value={doorName}
           onChange={(e) => setDoorName(e.target.value)}
           placeholder="Nombre de la persona"
-          className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 transition-colors"
+          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 transition-all"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && doorName.trim() && !doorLoading) registerDoor()
           }}
@@ -183,7 +194,7 @@ export function DoorTab() {
 
         {/* Promoter code (optional) */}
         <div>
-          <label className="text-[11px] text-white-muted font-medium mb-1 block">
+          <label className="text-[11px] text-gray-500 font-semibold mb-1 block uppercase tracking-wider">
             Codigo organizador (opcional)
           </label>
           <input
@@ -199,7 +210,7 @@ export function DoorTab() {
               )
             }}
             placeholder="XXXX-XXXX"
-            className="w-full px-4 py-3 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm font-mono tracking-widest focus:outline-none focus:border-primary/40 transition-colors uppercase"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm font-mono tracking-widest focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 transition-all uppercase"
           />
         </div>
 
@@ -208,7 +219,9 @@ export function DoorTab() {
             auto-syncs to that same event, making this picker redundant). */}
         {multipleEvents && selectedEventId === 'all' && (
           <div className="space-y-2">
-            <label className="text-[11px] text-white-muted font-medium">Grupo</label>
+            <label className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">
+              Grupo
+            </label>
             <EventDayGroups
               eventsByDay={eventsByDay}
               selectedId={doorEventId}
@@ -220,9 +233,11 @@ export function DoorTab() {
         {/* When scoped to a specific event, surface a small hint so the user
             sees WHICH event this registration will be applied to. */}
         {multipleEvents && selectedEventId !== 'all' && eventNameMap[doorEventId] && (
-          <p className="text-[11px] text-white-muted">
+          <p className="text-[11px] text-gray-500">
             Registrando en{' '}
-            <span className="text-white font-medium">{eventNameMap[doorEventId]}</span>
+            <span className="text-gray-900 font-semibold">
+              {eventNameMap[doorEventId]}
+            </span>
           </p>
         )}
 
@@ -231,7 +246,7 @@ export function DoorTab() {
           onClick={registerDoor}
           disabled={!doorName.trim() || doorLoading}
           className={cn(
-            'btn-primary w-full py-3.5 text-sm font-semibold',
+            'w-full py-3.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 text-white bg-gradient-to-br from-blue-600 to-indigo-600 shadow-[0_6px_20px_rgba(59,130,246,0.35)] hover:brightness-110 active:scale-[0.98] transition-all',
             (!doorName.trim() || doorLoading) && 'opacity-50 pointer-events-none',
           )}
         >
@@ -248,23 +263,25 @@ export function DoorTab() {
       {doorResult && (
         <div
           className={cn(
-            'card p-4 flex items-center gap-3',
-            doorResult.success ? 'border-emerald-500/30' : 'border-red-500/30',
+            'rounded-2xl shadow-soft border p-4 flex items-center gap-3',
+            doorResult.success
+              ? 'border-emerald-200 bg-emerald-50/90'
+              : 'border-red-200 bg-red-50/90',
           )}
           style={{ animation: 'slideUp 0.2s ease-out' }}
         >
           {doorResult.success ? (
-            <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+            <CheckCircle2 className="w-6 h-6 text-emerald-600 flex-shrink-0" />
           ) : (
-            <XCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
+            <XCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
           )}
           <div>
-            <p className="text-sm font-medium text-white">
+            <p className="text-sm font-semibold text-gray-900">
               {doorResult.success
                 ? `${doorResult.name} registrado${doorResult.queued ? ' (offline)' : ''}`
                 : 'Error'}
             </p>
-            <p className="text-[11px] text-white-muted">
+            <p className="text-[11px] text-gray-600">
               {doorResult.success
                 ? doorResult.queued
                   ? 'Se enviara al servidor cuando vuelva la conexion'
@@ -279,34 +296,37 @@ export function DoorTab() {
 
       {/* Door entry stats */}
       {doorCount > 0 && (
-        <div className="card p-3 flex items-center justify-between">
+        <div className="glass-strong rounded-xl shadow-soft p-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <DoorOpen className="w-4 h-4 text-amber-400" />
-            <span className="text-xs text-white-muted">Entradas en puerta hoy</span>
+            <DoorOpen className="w-4 h-4 text-amber-600" />
+            <span className="text-xs text-gray-600">Entradas en puerta hoy</span>
           </div>
-          <span className="text-sm font-bold text-amber-400 tabular-nums">{doorCount}</span>
+          <span className="text-sm font-bold text-amber-700 tabular-nums">{doorCount}</span>
         </div>
       )}
 
       {/* Recent door entries */}
       {doorEntries.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] text-white/30 font-medium uppercase tracking-wider">
+          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider px-1">
             Ultimas entradas
           </p>
           <div className="space-y-1.5">
             {doorEntries.map((a) => (
-              <div key={a.id} className="card p-3 flex items-center gap-2.5">
-                <DoorOpen className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                <span className="text-xs text-white flex-1 truncate">
+              <div
+                key={a.id}
+                className="glass-strong rounded-xl shadow-soft p-3 flex items-center gap-2.5"
+              >
+                <DoorOpen className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                <span className="text-xs text-gray-900 flex-1 truncate font-medium">
                   {a.user_name || 'Sin nombre'}
                 </span>
                 {showEventLabel && (
-                  <span className="text-[10px] text-white/25 truncate max-w-[80px]">
+                  <span className="text-[10px] text-gray-400 truncate max-w-[80px]">
                     {eventNameMap[a.event_id]}
                   </span>
                 )}
-                <span className="text-[10px] text-white/25 tabular-nums">
+                <span className="text-[10px] text-gray-400 tabular-nums">
                   {formatTime(a.scanned_at)}
                 </span>
               </div>

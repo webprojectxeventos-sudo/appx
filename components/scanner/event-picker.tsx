@@ -29,12 +29,12 @@ function phaseFor(date: Date, now: Date = new Date()): Phase {
 
 function chipFor(phase: Phase): { label: string; cls: string } {
   if (phase.kind === 'live')
-    return { label: 'En curso', cls: 'text-primary' }
+    return { label: 'En curso', cls: 'text-red-600' }
   if (phase.kind === 'soon')
-    return { label: phase.label, cls: 'text-emerald-300' }
+    return { label: phase.label, cls: 'text-emerald-600' }
   if (phase.kind === 'upcoming')
-    return { label: phase.label, cls: 'text-white/50' }
-  return { label: 'Acabó', cls: 'text-white/30' }
+    return { label: phase.label, cls: 'text-gray-500' }
+  return { label: 'Acabó', cls: 'text-gray-400' }
 }
 
 function shortDate(date: Date, now: Date = new Date()): string {
@@ -54,15 +54,14 @@ function shortDate(date: Date, now: Date = new Date()): string {
 
 /**
  * Horizontal rail of selectable event pills — the primary navigation surface
- * for scoping what the scanner is looking at. Replaces the old EventHero +
- * bottom-sheet combo:
- *  - All events are visible at once (horizontal scroll if needed) so operators
- *    see the whole venue's pipeline without opening a modal.
- *  - "Todos" aggregate pill on the left for venue-wide scope.
- *  - Active pill gets the primary-red ring so the focus is unmistakable at
- *    arm's length (important in crowded doors with low light).
- *  - When there's a single event we render a compact status card instead —
- *    no pills needed.
+ * for scoping what the scanner is looking at. Light theme con pill activa en
+ * gradient azul-índigo, "live" sigue siendo rojo semántico (evento en curso,
+ * escanea ya) para distinguirse del estado "seleccionado".
+ *
+ *  - Todos los eventos visibles a la vez (scroll horizontal si hace falta)
+ *  - "Todos" pill de agregación a la izquierda para vista venue-wide
+ *  - Pill activa con ring azul + sombra blanda
+ *  - 1 sólo evento → compact status card (sin rail)
  */
 export function EventPicker() {
   const { serverEvents, selectedEventId, setSelectedEventId, attendees } = useScanner()
@@ -167,14 +166,14 @@ function SingleEventCard({
   const pct = counts.total > 0 ? Math.round((counts.inside / counts.total) * 100) : 0
 
   return (
-    <div className="card p-3.5 relative overflow-hidden">
+    <div className="glass-strong rounded-2xl shadow-soft p-3.5 relative overflow-hidden">
       {/* Glow tint for live events — subtle but unmissable */}
       {phase.kind === 'live' && (
         <div
-          className="absolute inset-0 pointer-events-none opacity-60"
+          className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle at 0% 50%, rgba(228,30,43,0.12) 0%, transparent 50%)',
+              'radial-gradient(circle at 0% 50%, rgba(239, 68, 68, 0.10) 0%, transparent 55%)',
           }}
         />
       )}
@@ -182,22 +181,22 @@ function SingleEventCard({
       <div className="relative flex items-center gap-3">
         <PhaseDot phase={phase} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-white truncate leading-tight">{name}</p>
-          <p className="text-[11px] text-white-muted mt-0.5 tabular-nums">
-            <span className={chip.cls}>{chip.label}</span>
-            <span className="text-white/25"> · </span>
+          <p className="text-sm font-bold text-gray-900 truncate leading-tight">{name}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+            <span className={cn('font-semibold', chip.cls)}>{chip.label}</span>
+            <span className="text-gray-300"> · </span>
             <span>{timeLabel}</span>
-            <span className="text-white/25"> · </span>
+            <span className="text-gray-300"> · </span>
             <span>{shortDate(date)}</span>
           </p>
         </div>
         <div className="text-right flex-shrink-0">
-          <p className="text-base font-bold text-white tabular-nums leading-tight">
+          <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
             {counts.inside}
-            <span className="text-white/25">/{counts.total}</span>
+            <span className="text-gray-400">/{counts.total}</span>
           </p>
           {counts.total > 0 && (
-            <p className="text-[10px] text-white/40 tabular-nums">{pct}%</p>
+            <p className="text-[10px] text-gray-500 tabular-nums">{pct}%</p>
           )}
         </div>
       </div>
@@ -227,11 +226,10 @@ function AggregatePill({
       onClick={onClick}
       data-active={active}
       className={cn(
-        'relative flex-shrink-0 snap-start w-[140px] p-3 rounded-xl text-left transition-all overflow-hidden',
-        'border',
+        'relative flex-shrink-0 snap-start w-[140px] p-3 rounded-xl text-left transition-all overflow-hidden border',
         active
-          ? 'border-primary/50 bg-gradient-to-br from-primary/15 to-primary/[0.03] shadow-[0_2px_14px_rgba(228,30,43,0.22)]'
-          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10 active:scale-[0.98]',
+          ? 'border-blue-500/60 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-soft'
+          : 'border-gray-200 bg-white/80 hover:border-gray-300 hover:bg-white active:scale-[0.98]',
       )}
     >
       {/* Progress strip */}
@@ -239,7 +237,7 @@ function AggregatePill({
         <div
           className={cn(
             'absolute left-0 bottom-0 h-0.5 transition-all duration-500',
-            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-white/15',
+            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-gray-200',
           )}
           style={{ width: `${pct}%` }}
         />
@@ -249,20 +247,20 @@ function AggregatePill({
         <div
           className={cn(
             'w-5 h-5 rounded-md flex items-center justify-center',
-            active ? 'bg-primary/25' : 'bg-white/[0.06]',
+            active ? 'bg-blue-100' : 'bg-gray-100',
           )}
         >
-          <Layers className={cn('w-3 h-3', active ? 'text-primary' : 'text-white/60')} />
+          <Layers className={cn('w-3 h-3', active ? 'text-blue-600' : 'text-gray-500')} />
         </div>
-        <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Todos</p>
+        <p className={cn('text-[10px] uppercase tracking-widest font-semibold', active ? 'text-blue-700' : 'text-gray-500')}>Todos</p>
       </div>
-      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-white' : 'text-white/85')}>
+      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-gray-900' : 'text-gray-800')}>
         {eventCount} eventos
       </p>
-      <p className="text-[11px] text-white/50 mt-0.5 tabular-nums">
+      <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
         {inside}
-        <span className="text-white/30">/{total}</span>
-        {total > 0 && <span className="text-white/30"> · {pct}%</span>}
+        <span className="text-gray-400">/{total}</span>
+        {total > 0 && <span className="text-gray-400"> · {pct}%</span>}
       </p>
     </button>
   )
@@ -296,11 +294,10 @@ function EventPill({
       onClick={onClick}
       data-active={active}
       className={cn(
-        'relative flex-shrink-0 snap-start w-[180px] p-3 rounded-xl text-left transition-all overflow-hidden',
-        'border',
+        'relative flex-shrink-0 snap-start w-[180px] p-3 rounded-xl text-left transition-all overflow-hidden border',
         active
-          ? 'border-primary/50 bg-gradient-to-br from-primary/15 to-primary/[0.03] shadow-[0_2px_14px_rgba(228,30,43,0.22)]'
-          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10 active:scale-[0.98]',
+          ? 'border-blue-500/60 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-soft'
+          : 'border-gray-200 bg-white/80 hover:border-gray-300 hover:bg-white active:scale-[0.98]',
       )}
     >
       {/* Progress strip anchored at the bottom */}
@@ -308,7 +305,7 @@ function EventPill({
         <div
           className={cn(
             'absolute left-0 bottom-0 h-0.5 transition-all duration-500',
-            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-white/15',
+            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-gray-200',
           )}
           style={{ width: `${pct}%` }}
         />
@@ -316,18 +313,18 @@ function EventPill({
 
       <div className="flex items-center gap-1.5 mb-1.5">
         <PhaseDot phase={phase} small />
-        <p className={cn('text-[10px] uppercase tracking-widest font-medium', chip.cls)}>
+        <p className={cn('text-[10px] uppercase tracking-widest font-semibold', chip.cls)}>
           {chip.label}
         </p>
-        <span className="ml-auto text-[10px] text-white/40 tabular-nums">{timeLabel}</span>
+        <span className="ml-auto text-[10px] text-gray-400 tabular-nums">{timeLabel}</span>
       </div>
-      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-white' : 'text-white/85')}>
+      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-gray-900' : 'text-gray-800')}>
         {name}
       </p>
-      <p className="text-[11px] text-white/50 mt-0.5 tabular-nums">
+      <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
         {counts.inside}
-        <span className="text-white/30">/{counts.total}</span>
-        <span className="text-white/25"> · {shortDate(date)}</span>
+        <span className="text-gray-400">/{counts.total}</span>
+        <span className="text-gray-400"> · {shortDate(date)}</span>
       </p>
     </button>
   )
@@ -339,11 +336,11 @@ function PhaseDot({ phase, small }: { phase: Phase; small?: boolean }) {
   if (phase.kind === 'live') {
     return (
       <span className="relative inline-flex items-center justify-center">
-        <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full bg-primary')} />
+        <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full bg-red-500')} />
         <span
           className={cn(
             small ? 'w-2 h-2' : 'w-2.5 h-2.5',
-            'absolute rounded-full bg-primary animate-ping opacity-75',
+            'absolute rounded-full bg-red-500 animate-ping opacity-75',
           )}
         />
         {!small && <Radio className="hidden" aria-hidden />}
@@ -352,9 +349,9 @@ function PhaseDot({ phase, small }: { phase: Phase; small?: boolean }) {
   }
   const color =
     phase.kind === 'soon'
-      ? 'bg-emerald-400'
+      ? 'bg-emerald-500'
       : phase.kind === 'upcoming'
-        ? 'bg-white/40'
-        : 'bg-white/20'
+        ? 'bg-gray-400'
+        : 'bg-gray-300'
   return <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full', color)} />
 }
