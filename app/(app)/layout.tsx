@@ -326,7 +326,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   return (
     <>
       <AppHeader />
-      <main className="flex-1 pb-20">
+      <main className="flex-1" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
         <div className="p-4 max-w-lg mx-auto">{children}</div>
       </main>
       <BottomNav />
