@@ -397,18 +397,21 @@ export function ScanTab() {
   return (
     <div className="space-y-3">
       {/* Camera + overlays.
-          - When scanning: force ~320px tall so the qr-reader video has room.
-          - When idle: collapse to the compact hint strip so the real estate
-            is reclaimed for the event hero + recent scans list above/below. */}
+          - Scanning: dark bg (the video feed needs translucent overlays
+            that read well over arbitrary camera content).
+          - Idle: light glass-strong strip — matches the rest of the
+            light-theme UI and telegraphs "sensor standby". */}
       <div
         ref={scannerRef}
         className={cn(
-          'relative rounded-2xl overflow-hidden bg-black-card border transition-colors duration-300',
-          flash === 'success' && 'border-emerald-400/70 shadow-[0_0_0_3px_rgba(52,211,153,0.35)]',
-          flash === 'duplicate' && 'border-amber-400/70 shadow-[0_0_0_3px_rgba(251,191,36,0.25)]',
-          flash === 'error' && 'border-red-400/70 shadow-[0_0_0_3px_rgba(248,113,113,0.3)]',
-          flash === 'pending' && 'border-primary/60',
-          flash === 'none' && 'border-black-border',
+          'relative rounded-2xl overflow-hidden border transition-colors duration-300 shadow-soft',
+          scanning ? 'bg-gray-900' : 'glass-strong',
+          flash === 'success' && 'border-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.30)]',
+          flash === 'duplicate' && 'border-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.25)]',
+          flash === 'error' && 'border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.30)]',
+          flash === 'pending' && 'border-blue-500/60',
+          flash === 'none' && !scanning && 'border-gray-200',
+          flash === 'none' && scanning && 'border-gray-800',
         )}
         style={scanning ? { minHeight: '320px' } : undefined}
       >
@@ -455,10 +458,10 @@ export function ScanTab() {
                   visual noise on top of the pulse animation. */}
               {flash === 'none' && (
                 <div
-                  className="absolute left-1 right-1 top-1 h-px bg-gradient-to-r from-transparent via-primary/70 to-transparent pointer-events-none"
+                  className="absolute left-1 right-1 top-1 h-px bg-gradient-to-r from-transparent via-blue-400/80 to-transparent pointer-events-none"
                   style={{
                     animation: 'scan-line-sweep 2.4s ease-in-out infinite',
-                    boxShadow: '0 0 8px rgba(228,30,43,0.6)',
+                    boxShadow: '0 0 8px rgba(59,130,246,0.7)',
                   }}
                 />
               )}
@@ -467,76 +470,72 @@ export function ScanTab() {
                   'absolute top-0 left-0 w-8 h-8 border-t-[3px] border-l-[3px] rounded-tl transition-colors duration-200',
                   flashCorner(flash),
                 )}
-                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite' } : undefined}
               />
               <div
                 className={cn(
                   'absolute top-0 right-0 w-8 h-8 border-t-[3px] border-r-[3px] rounded-tr transition-colors duration-200',
                   flashCorner(flash),
                 )}
-                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.15s' } : undefined}
               />
               <div
                 className={cn(
                   'absolute bottom-0 left-0 w-8 h-8 border-b-[3px] border-l-[3px] rounded-bl transition-colors duration-200',
                   flashCorner(flash),
                 )}
-                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.3s' } : undefined}
               />
               <div
                 className={cn(
                   'absolute bottom-0 right-0 w-8 h-8 border-b-[3px] border-r-[3px] rounded-br transition-colors duration-200',
                   flashCorner(flash),
                 )}
-                style={flash === 'none' ? { animation: 'corner-pulse 2.4s ease-in-out infinite', animationDelay: '0.45s' } : undefined}
               />
             </div>
           </div>
         )}
 
-        {/* Idle state — compact horizontal strip instead of dominating the
-            screen. Drops ~190px compared to the previous big-circle layout
-            which forced the card to 320px tall even when idle. */}
+        {/* Idle state — compact horizontal strip en tema claro.
+            Se colapsa a ~80px vs los 320px que forzaba la cámara, devolviendo
+            espacio para el event picker + stats arriba y el log de scans abajo. */}
         {!scanning && (
           <div className="relative py-5 px-5 flex items-center gap-3 overflow-hidden">
-            {/* Ambient radial gradient (subtle) */}
+            {/* Ambient radial gradient (azul muy sutil) */}
             <div
-              className="absolute inset-0 opacity-50 pointer-events-none"
+              className="absolute inset-0 opacity-60 pointer-events-none"
               style={{
                 background:
-                  'radial-gradient(circle at 30% 50%, rgba(228,30,43,0.12) 0%, transparent 65%)',
+                  'radial-gradient(circle at 30% 50%, rgba(59,130,246,0.10) 0%, transparent 65%)',
               }}
             />
-            {/* Decorative scan line pulse — hints at "sensor ready" */}
+            {/* Decorative scan line pulse — "sensor ready" */}
             <div
-              className="absolute left-6 right-6 top-1/2 h-px bg-gradient-to-r from-transparent via-primary/35 to-transparent pointer-events-none"
+              className="absolute left-6 right-6 top-1/2 h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent pointer-events-none"
               style={{ animation: 'glow-pulse 2.5s ease-in-out infinite' }}
             />
-            <div className="relative w-11 h-11 rounded-xl bg-primary/12 border border-primary/25 flex items-center justify-center flex-shrink-0 backdrop-blur-sm">
-              <Camera className="w-5 h-5 text-primary" />
+            <div className="relative w-11 h-11 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
+              <Camera className="w-5 h-5 text-blue-600" />
             </div>
             <div className="relative min-w-0 flex-1">
-              <p className="text-sm font-bold text-white leading-tight">
+              <p className="text-sm font-bold text-gray-900 leading-tight">
                 Escáner listo
               </p>
-              <p className="text-[11px] text-white/40 mt-0.5">
+              <p className="text-[11px] text-gray-500 mt-0.5">
                 Pulsa para abrir la cámara · QR · EAN · Code128
               </p>
             </div>
           </div>
         )}
 
-        {/* Floating counter (session) */}
+        {/* Floating counter (session) — dark translucent pill sobre video */}
         {scanning && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] font-bold text-white tabular-nums">{sessionValid}</span>
-            <span className="text-[10px] text-white/40">validados</span>
+          <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/90 backdrop-blur-sm border border-white shadow-soft">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="text-[11px] font-bold text-gray-900 tabular-nums">{sessionValid}</span>
+            <span className="text-[10px] text-gray-500">validados</span>
             {velocity > 0 && (
               <>
-                <span className="text-white/20">·</span>
-                <span className="text-[11px] font-bold text-primary tabular-nums">{velocity}</span>
-                <span className="text-[10px] text-white/40">/min</span>
+                <span className="text-gray-300">·</span>
+                <span className="text-[11px] font-bold text-blue-600 tabular-nums">{velocity}</span>
+                <span className="text-[10px] text-gray-500">/min</span>
               </>
             )}
           </div>
@@ -546,10 +545,10 @@ export function ScanTab() {
         {scanning && (
           <div
             className={cn(
-              'absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-sm border text-[10px] font-medium',
+              'absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-sm border text-[10px] font-semibold shadow-soft',
               online
-                ? 'bg-black/60 border-white/10 text-white/50'
-                : 'bg-amber-500/20 border-amber-500/30 text-amber-300',
+                ? 'bg-white/90 border-white text-gray-600'
+                : 'bg-amber-100 border-amber-200 text-amber-700',
             )}
           >
             {online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
@@ -565,10 +564,10 @@ export function ScanTab() {
             aria-pressed={torchOn}
             aria-label={torchOn ? 'Apagar linterna' : 'Encender linterna'}
             className={cn(
-              'absolute bottom-3 right-3 w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-sm border transition-all active:scale-95',
+              'absolute bottom-3 right-3 w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-sm border transition-all active:scale-95 shadow-soft',
               torchOn
-                ? 'bg-amber-400 border-amber-300 text-black shadow-[0_0_20px_rgba(251,191,36,0.6)]'
-                : 'bg-black/60 border-white/15 text-white/70',
+                ? 'bg-amber-400 border-amber-300 text-amber-950 shadow-[0_0_20px_rgba(251,191,36,0.7)]'
+                : 'bg-white/90 border-white text-gray-700',
             )}
           >
             {torchOn ? (
@@ -591,9 +590,9 @@ export function ScanTab() {
           <button
             onClick={startScanner}
             className="relative flex-1 py-4 rounded-xl text-sm font-bold text-white overflow-hidden
-                       bg-gradient-to-br from-primary to-red-700
-                       shadow-[0_6px_20px_rgba(228,30,43,0.4)]
-                       hover:shadow-[0_8px_28px_rgba(228,30,43,0.55)]
+                       bg-gradient-to-br from-blue-600 to-indigo-600
+                       shadow-[0_6px_20px_rgba(59,130,246,0.35)]
+                       hover:shadow-[0_8px_28px_rgba(59,130,246,0.45)]
                        active:scale-[0.98] transition-all duration-200
                        flex items-center justify-center gap-2"
           >
@@ -610,9 +609,9 @@ export function ScanTab() {
         ) : (
           <button
             onClick={stopScanner}
-            className="flex-1 py-4 rounded-xl text-sm font-semibold text-white/80
-                       bg-white/[0.06] border border-white/[0.08]
-                       hover:bg-white/[0.09] active:scale-[0.98] transition-all duration-200"
+            className="flex-1 py-4 rounded-xl text-sm font-semibold text-gray-700
+                       bg-white border border-gray-200 shadow-soft
+                       hover:bg-gray-50 active:scale-[0.98] transition-all duration-200"
           >
             Detener escaner
           </button>
@@ -620,10 +619,10 @@ export function ScanTab() {
         <button
           onClick={() => setSoundEnabled((s) => !s)}
           className={cn(
-            'w-12 h-auto flex items-center justify-center rounded-xl border transition-all active:scale-95',
+            'w-12 h-auto flex items-center justify-center rounded-xl border transition-all active:scale-95 shadow-soft',
             soundEnabled
-              ? 'border-primary/30 bg-primary/10 text-primary'
-              : 'border-white/[0.08] bg-white/[0.04] text-white/40',
+              ? 'border-blue-200 bg-blue-50 text-blue-600'
+              : 'border-gray-200 bg-white text-gray-400',
           )}
           aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
         >
@@ -635,12 +634,12 @@ export function ScanTab() {
       {recent.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-wider text-white/30 font-medium">
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
               Ultimos escaneos
             </p>
             <button
               onClick={() => setRecent([])}
-              className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
+              className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
             >
               Limpiar
             </button>
@@ -655,17 +654,17 @@ export function ScanTab() {
 
       {/* Camera error banner */}
       {cameraError && (
-        <div className="card p-4 border-red-500/30 bg-red-500/5">
+        <div className="glass-strong rounded-2xl shadow-soft p-4 border-red-200 bg-red-50/70">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
-              <XCircle className="w-4 h-4 text-red-400" />
+            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+              <XCircle className="w-4 h-4 text-red-600" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-red-400">Camara no disponible</p>
-              <p className="text-xs text-white-muted mt-1 leading-relaxed">{cameraError}</p>
-              <p className="text-[11px] text-white/30 mt-2">
+              <p className="text-sm font-semibold text-red-700">Camara no disponible</p>
+              <p className="text-xs text-gray-600 mt-1 leading-relaxed">{cameraError}</p>
+              <p className="text-[11px] text-gray-500 mt-2">
                 Mientras tanto puedes validar entradas a mano en la pestana{' '}
-                <span className="text-white-muted">Lista</span>.
+                <span className="text-gray-700 font-medium">Lista</span>.
               </p>
             </div>
           </div>
@@ -676,6 +675,8 @@ export function ScanTab() {
 }
 
 // ── Hero card ──────────────────────────────────────────────────────────────
+// Se muestra sobre el feed de cámara → fondo translúcido oscuro para legibilidad
+// sobre cualquier contenido de vídeo. No seguimos el tema claro aquí a propósito.
 
 function HeroCard({ scan }: { scan: RecentScan }) {
   const style = STYLE_BY_KIND[scan.kind]
@@ -683,7 +684,7 @@ function HeroCard({ scan }: { scan: RecentScan }) {
   return (
     <div
       className={cn(
-        'absolute left-3 right-3 bottom-3 p-3 rounded-xl border backdrop-blur-xl flex items-center gap-3 transition-all',
+        'absolute left-3 right-3 bottom-3 p-3 rounded-xl border backdrop-blur-xl flex items-center gap-3 transition-all shadow-elevated',
         style.heroBg,
         style.heroBorder,
       )}
@@ -692,20 +693,20 @@ function HeroCard({ scan }: { scan: RecentScan }) {
       <div
         className={cn(
           'w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0',
-          style.iconBg,
+          style.heroIconBg,
         )}
       >
         {scan.kind === 'pending' ? (
-          <Loader2 className={cn('w-5 h-5 animate-spin', style.iconColor)} />
+          <Loader2 className={cn('w-5 h-5 animate-spin', style.heroIconColor)} />
         ) : (
-          <Icon className={cn('w-6 h-6', style.iconColor)} />
+          <Icon className={cn('w-6 h-6', style.heroIconColor)} />
         )}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-base font-bold text-white truncate leading-tight">
           {scan.name}
         </p>
-        <p className="text-[11px] text-white/70 truncate">{scan.subtitle}</p>
+        <p className="text-[11px] text-white/75 truncate">{scan.subtitle}</p>
       </div>
     </div>
   )
@@ -719,7 +720,7 @@ function RecentRow({ scan }: { scan: RecentScan }) {
   return (
     <div
       className={cn(
-        'card p-2.5 flex items-center gap-2.5 transition-colors',
+        'glass-strong rounded-xl shadow-soft p-2.5 flex items-center gap-2.5 transition-colors',
         style.border,
       )}
     >
@@ -736,10 +737,10 @@ function RecentRow({ scan }: { scan: RecentScan }) {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-white truncate">{scan.name}</p>
-        <p className="text-[10px] text-white/40 truncate">{scan.subtitle}</p>
+        <p className="text-xs font-semibold text-gray-900 truncate">{scan.name}</p>
+        <p className="text-[10px] text-gray-500 truncate">{scan.subtitle}</p>
       </div>
-      <span className="text-[10px] text-white/30 tabular-nums flex items-center gap-1">
+      <span className="text-[10px] text-gray-400 tabular-nums flex items-center gap-1">
         <Clock className="w-2.5 h-2.5" />
         {new Date(scan.at).toLocaleTimeString('es-ES', {
           hour: '2-digit',
@@ -756,59 +757,73 @@ function flashCorner(flash: 'none' | 'pending' | 'success' | 'duplicate' | 'erro
   if (flash === 'success') return 'border-emerald-400'
   if (flash === 'duplicate') return 'border-amber-400'
   if (flash === 'error') return 'border-red-400'
-  if (flash === 'pending') return 'border-primary'
-  return 'border-primary'
+  if (flash === 'pending') return 'border-blue-400'
+  return 'border-blue-400'
 }
 
 const STYLE_BY_KIND: Record<
   ScanKind,
   {
     icon: typeof CheckCircle2
+    // Recent-row styling (light theme, sobre glass-strong)
     iconColor: string
     iconBg: string
     border: string
+    // Hero overlay styling (sobre video de cámara — se queda oscuro)
     heroBg: string
     heroBorder: string
+    heroIconColor: string
+    heroIconBg: string
   }
 > = {
   pending: {
     icon: Loader2,
-    iconColor: 'text-primary',
-    iconBg: 'bg-primary/15',
-    border: 'border-primary/20',
-    heroBg: 'bg-black/70',
-    heroBorder: 'border-primary/40',
+    iconColor: 'text-blue-600',
+    iconBg: 'bg-blue-100',
+    border: 'border-blue-200',
+    heroBg: 'bg-black/75',
+    heroBorder: 'border-blue-400/50',
+    heroIconColor: 'text-blue-300',
+    heroIconBg: 'bg-blue-500/25',
   },
   success: {
     icon: CheckCircle2,
-    iconColor: 'text-emerald-400',
-    iconBg: 'bg-emerald-500/20',
-    border: 'border-emerald-500/25',
-    heroBg: 'bg-emerald-900/70',
-    heroBorder: 'border-emerald-400/60',
+    iconColor: 'text-emerald-600',
+    iconBg: 'bg-emerald-100',
+    border: 'border-emerald-200',
+    heroBg: 'bg-emerald-900/85',
+    heroBorder: 'border-emerald-400/70',
+    heroIconColor: 'text-emerald-300',
+    heroIconBg: 'bg-emerald-500/25',
   },
   duplicate: {
     icon: Clock,
-    iconColor: 'text-amber-300',
-    iconBg: 'bg-amber-500/20',
-    border: 'border-amber-500/25',
-    heroBg: 'bg-amber-900/70',
-    heroBorder: 'border-amber-400/50',
+    iconColor: 'text-amber-600',
+    iconBg: 'bg-amber-100',
+    border: 'border-amber-200',
+    heroBg: 'bg-amber-900/85',
+    heroBorder: 'border-amber-400/70',
+    heroIconColor: 'text-amber-300',
+    heroIconBg: 'bg-amber-500/25',
   },
   error: {
     icon: XCircle,
-    iconColor: 'text-red-300',
-    iconBg: 'bg-red-500/20',
-    border: 'border-red-500/25',
-    heroBg: 'bg-red-900/70',
-    heroBorder: 'border-red-400/60',
+    iconColor: 'text-red-600',
+    iconBg: 'bg-red-100',
+    border: 'border-red-200',
+    heroBg: 'bg-red-900/85',
+    heroBorder: 'border-red-400/70',
+    heroIconColor: 'text-red-300',
+    heroIconBg: 'bg-red-500/25',
   },
   queued: {
     icon: CloudUpload,
-    iconColor: 'text-amber-300',
-    iconBg: 'bg-amber-500/20',
-    border: 'border-amber-500/25',
-    heroBg: 'bg-amber-900/70',
-    heroBorder: 'border-amber-400/50',
+    iconColor: 'text-amber-600',
+    iconBg: 'bg-amber-100',
+    border: 'border-amber-200',
+    heroBg: 'bg-amber-900/85',
+    heroBorder: 'border-amber-400/70',
+    heroIconColor: 'text-amber-300',
+    heroIconBg: 'bg-amber-500/25',
   },
 }

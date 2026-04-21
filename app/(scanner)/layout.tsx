@@ -40,6 +40,20 @@ function EyeIcon({ className }: { className?: string }) {
   )
 }
 
+/**
+ * Scanner layout — isla visual clara dentro de una app principalmente oscura.
+ *
+ * Paleta: fondo `bg-dots` + `glass-strong` panels + acento blue-600/indigo-600,
+ * siguiendo el look de entradas.projectxeventos.es. El resto de la app (admin,
+ * home, cloakroom opcionalmente) sigue su tema oscuro; este layout actúa como
+ * un contenedor que re-estila sólo lo que vive bajo /scanner.
+ *
+ * Preserva todo el set de features del scanner original:
+ *   - Tap-to-confirm logout
+ *   - Hi-vis mode (se aplica a `.scanner-root` en globals.css)
+ *   - Venue badge con día + contador de eventos activos
+ *   - Back-to-admin para usuarios con rol admin / group_admin
+ */
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -68,33 +82,11 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
   }, [user, profile, initialized, loading, isStaff, router])
 
   if (!initialized || !user || loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
-        <div className="text-center animate-fade-in">
-          <Image src="/logo.png" alt="Project X" width={48} height={48} className="rounded-xl mx-auto mb-4" priority />
-          <div className="flex items-center gap-1.5 justify-center">
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }} />
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }} />
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingScreen />
   }
 
   if (!user || !profile || !isStaff) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-background min-h-screen">
-        <div className="text-center animate-fade-in">
-          <Image src="/logo.png" alt="Project X" width={48} height={48} className="rounded-xl mx-auto mb-4" priority />
-          <div className="flex items-center gap-1.5 justify-center">
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }} />
-            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }} />
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingScreen />
   }
 
   const activeEventCount = events?.length || 0
@@ -106,15 +98,15 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
   })
 
   return (
-    <div className="min-h-screen bg-background text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-black-border bg-[#0e0e0e]/90 backdrop-blur-xl">
-        <div className="px-4 py-3 flex items-center justify-between">
+    <div className="scanner-root min-h-screen bg-dots text-gray-900">
+      {/* Header — glass-strong sticky, acento azul-índigo, iconos neutros */}
+      <header className="sticky top-0 z-40 glass-strong border-b border-gray-200/70 shadow-soft">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {canGoBackToAdmin && (
               <button
                 onClick={() => router.push('/admin/dashboard')}
-                className="p-1.5 -ml-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 transition-colors"
+                className="p-1.5 -ml-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
                 title="Volver al panel"
                 aria-label="Volver al panel"
               >
@@ -122,16 +114,16 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
               </button>
             )}
             <Image src="/logo.png" alt="Project X" width={28} height={28} className="rounded-lg" />
-            <h1 className="font-bold text-sm text-white">{pageTitle}</h1>
+            <h1 className="font-bold text-sm text-gray-900">{pageTitle}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-white-muted">{profile.full_name}</span>
+            <span className="text-xs text-gray-500">{profile.full_name}</span>
             <button
               onClick={() => toggleHiVis()}
               className={`p-1.5 rounded-lg transition-all ${
                 hiVis
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-white-muted hover:text-white hover:bg-white/5'
+                  ? 'bg-blue-50 text-blue-600'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
               title={hiVis ? 'Modo alta visibilidad activado' : 'Activar alta visibilidad'}
               aria-label="Alternar modo alta visibilidad"
@@ -143,8 +135,8 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
               onClick={handleLogout}
               className={`p-1.5 rounded-lg transition-all ${
                 logoutConfirm
-                  ? 'bg-red-500/15 text-red-400'
-                  : 'text-white-muted hover:text-white hover:bg-white/5'
+                  ? 'bg-red-50 text-red-600'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
               title={logoutConfirm ? 'Pulsa de nuevo para cerrar sesion' : 'Cerrar sesion'}
               aria-label="Cerrar sesion"
@@ -156,22 +148,37 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
 
         {/* Venue badge */}
         {venue?.name && (
-          <div className="px-4 pb-2.5 flex items-center gap-1.5">
-            <MapPinIcon className="w-3 h-3 text-primary/70" />
-            <span className="text-[11px] text-white-muted">
+          <div className="max-w-3xl mx-auto px-4 pb-2.5 flex items-center gap-1.5">
+            <MapPinIcon className="w-3 h-3 text-blue-600" />
+            <span className="text-[11px] text-gray-500">
               {venue.name}
-              <span className="text-white/30"> · {todayLabel}</span>
+              <span className="text-gray-400"> · {todayLabel}</span>
               {activeEventCount > 0 && (
-                <span className="text-white/30"> · {activeEventCount} evento{activeEventCount !== 1 ? 's' : ''}</span>
+                <span className="text-gray-400"> · {activeEventCount} evento{activeEventCount !== 1 ? 's' : ''}</span>
               )}
             </span>
           </div>
         )}
       </header>
 
-      <main className="p-4">
+      <main className="max-w-3xl mx-auto p-4">
         {children}
       </main>
+    </div>
+  )
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex-1 flex items-center justify-center bg-dots min-h-screen">
+      <div className="text-center animate-fade-in">
+        <Image src="/logo.png" alt="Project X" width={48} height={48} className="rounded-xl mx-auto mb-4" priority />
+        <div className="flex items-center gap-1.5 justify-center">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" style={{ animationDelay: '0.2s' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" style={{ animationDelay: '0.4s' }} />
+        </div>
+      </div>
     </div>
   )
 }
