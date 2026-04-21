@@ -3,9 +3,28 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
-import { Calendar, ChevronRight, Plus, Check } from 'lucide-react'
+import { Calendar, ChevronRight, Plus, Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Mapea el `error` string que devuelve redeem_access_code a copia para toast.
+// Dejo la logica de i18n aqui para poder iterar sin tocar SQL.
+const REDEEM_ERRORS: Record<string, string> = {
+  invalid_code: 'Codigo no valido',
+  code_disabled: 'Este codigo esta deshabilitado',
+  code_already_used: 'Este codigo ya fue canjeado por otro usuario',
+  not_authenticated: 'Sesion expirada, vuelve a iniciar sesion',
+}
+
+type RedeemResult = {
+  ok: boolean
+  error?: string
+  already_redeemed?: boolean
+  event_id?: string
+  event_title?: string
+  event_date?: string | null
+}
 
 interface UserEvent {
   event_id: string
@@ -70,24 +89,69 @@ export default function EventsPage() {
     setJoining(true)
 
     try {
-      const { data: validated } = await supabase.rpc('validate_access_code', { code_text: joinCode })
-      if (!validated) {
-        showError('Codigo no valido')
+      // Canje atomico: reclama el codigo + asegura user_events en una sola tx.
+      // Ver supabase-migration-redeem-access-code.sql.
+      const { data, error } = await supabase.rpc('redeem_access_code', {
+        code_text: joinCode,
+      })
+
+      if (error) {
+        console.error('[redeem_access_code]', error)
+        showError('No se pudo procesar el codigo')
         return
       }
 
-      // Add to user_events
-      await supabase.from('user_events').upsert({
-        user_id: user.id,
-        event_id: validated.event_id,
-        role: 'attendee',
-      }, { onConflict: 'user_id,event_id' })
+      const result = data as RedeemResult | null
+      if (!result?.ok) {
+        const code = result?.error || 'invalid_code'
+        showError(REDEEM_ERRORS[code] || 'Codigo no valido')
+        return
+      }
 
-      // Switch active event
-      await supabase.from('users').update({ event_id: validated.event_id }).eq('id', user.id)
+      if (!result.event_id) {
+        showError('Respuesta invalida del servidor')
+        return
+      }
+
+      // Generar ticket (idempotente: si ya existe, devuelve el QR existente).
+      // Asi el usuario siempre sale de aqui con QR valido aunque sea su codigo
+      // repetido.
+      let qrCode: string | null = null
+      try {
+        const { data: qr } = await supabase.rpc('generate_ticket', {
+          p_user_id: user.id,
+          p_event_id: result.event_id,
+        })
+        if (typeof qr === 'string') qrCode = qr
+      } catch (ticketErr) {
+        console.error('[generate_ticket]', ticketErr)
+      }
+
+      // Email best-effort (nunca bloquea la UX: si falla, el QR sigue
+      // disponible en /tickets). No await para no bloquear el switch.
+      if (qrCode) {
+        authFetch('/api/send-ticket', {
+          qrCode,
+          eventDate: result.event_date || null,
+          venueName: null,
+        }).catch((err) => {
+          console.error('[send-ticket]', err)
+        })
+      }
+
+      // Cambiar evento activo para que el resto de la app refleje el canje.
+      await supabase
+        .from('users')
+        .update({ event_id: result.event_id })
+        .eq('id', user.id)
       await refreshProfile()
+
       setJoinCode('')
-      success('Te has unido al evento')
+      if (result.already_redeemed) {
+        success('Ya estabas en este evento, actualizado')
+      } else {
+        success(`Te has unido a ${result.event_title || 'el evento'}`)
+      }
       fetchEvents()
     } catch (err) {
       console.error(err)
@@ -134,7 +198,7 @@ export default function EventsPage() {
             className="flex-1 px-4 py-2.5 rounded-xl border border-black-border bg-transparent text-white placeholder:text-gray-600 text-sm focus:outline-none focus:border-primary/40 uppercase tracking-widest"
           />
           <button onClick={handleJoin} disabled={!joinCode || joining} className="btn-primary px-4 py-2.5 text-sm">
-            <Plus className="w-4 h-4" />
+            {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           </button>
         </div>
       </div>
