@@ -101,6 +101,18 @@ export default function RegisterPage() {
     e.preventDefault()
     setError('')
 
+    // Privacy gate — check BEFORE anything else and scroll the checkbox into
+    // view. Previously the submit button was just disabled when the checkbox
+    // wasn't ticked, so users filled the form, clicked, nothing happened, and
+    // gave up (they never noticed the checkbox). Now the button is always
+    // clickable and we actively point them to what's missing.
+    if (!privacyAccepted) {
+      setError('Debes aceptar la politica de privacidad y los terminos para continuar')
+      const el = document.getElementById('privacy-checkbox')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+
     // Validate emails match BEFORE touching the backend
     if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
       setError('Los correos no coinciden — revisa que esten escritos igual')
@@ -530,17 +542,18 @@ export default function RegisterPage() {
               disabled={loading}
             />
 
-            {/* Privacy checkbox — made prominent because the previous version
-                was invisible (white/30 text on dark bg, 11px) and people
-                weren't completing registration because they couldn't tell
-                there was a required action. Full contrast + container + pulse
-                when unchecked so it reads as a real step. */}
+            {/* Privacy checkbox — high-visibility. People were missing this
+                and stalling at the submit step (button stayed disabled, no
+                feedback). Amber warning while unchecked draws the eye; when
+                user still tries to submit without ticking, handleSubmit
+                scrolls here and shows an error. */}
             <label
+              id="privacy-checkbox"
               className={cn(
-                'flex items-start gap-3 cursor-pointer p-3.5 rounded-xl border transition-all',
+                'flex items-start gap-3 cursor-pointer p-4 rounded-xl border-2 transition-all',
                 privacyAccepted
-                  ? 'bg-primary/10 border-primary/40'
-                  : 'bg-white/[0.03] border-white/20 hover:border-white/40'
+                  ? 'bg-primary/10 border-primary/50'
+                  : 'bg-amber-500/[0.08] border-amber-500/50 hover:border-amber-400 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]'
               )}
             >
               <div className="relative flex-shrink-0 mt-0.5">
@@ -553,30 +566,37 @@ export default function RegisterPage() {
                 />
                 <div
                   className={cn(
-                    'w-6 h-6 rounded-md border-2 transition-all flex items-center justify-center',
+                    'w-7 h-7 rounded-md border-2 transition-all flex items-center justify-center',
                     privacyAccepted
                       ? 'bg-primary border-primary'
-                      : 'bg-transparent border-white/60'
+                      : 'bg-white/5 border-amber-400'
                   )}
                 >
-                  {privacyAccepted && <Check className="w-4 h-4 text-white" strokeWidth={3} />}
+                  {privacyAccepted && <Check className="w-5 h-5 text-white" strokeWidth={3} />}
                 </div>
               </div>
-              <p className="text-sm text-white leading-relaxed">
-                He leido y acepto la{' '}
-                <Link href="/privacy" className="text-primary font-semibold underline hover:no-underline transition-all" target="_blank">
-                  Politica de Privacidad
-                </Link>{' '}
-                y los{' '}
-                <Link href="/terms" className="text-primary font-semibold underline hover:no-underline transition-all" target="_blank">
-                  Terminos de Servicio
-                </Link>
-              </p>
+              <div className="flex-1 min-w-0">
+                {!privacyAccepted && (
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-400 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Requerido para continuar
+                  </p>
+                )}
+                <p className="text-sm text-white leading-relaxed font-medium">
+                  He leido y acepto la{' '}
+                  <Link href="/privacy" className="text-primary font-bold underline hover:no-underline transition-all" target="_blank">
+                    Politica de Privacidad
+                  </Link>{' '}
+                  y los{' '}
+                  <Link href="/terms" className="text-primary font-bold underline hover:no-underline transition-all" target="_blank">
+                    Terminos de Servicio
+                  </Link>
+                </p>
+              </div>
             </label>
 
             <button
               type="submit"
-              disabled={loading || !privacyAccepted}
+              disabled={loading}
               className="btn-primary w-full py-3.5 text-sm font-semibold"
             >
               {loading ? 'Registrando...' : 'Registrarse'}
