@@ -130,7 +130,7 @@ function AppHeader() {
   const showAvatar = avatarUrl && !avatarError
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/[0.06] glass-panel px-4 py-3 flex items-center justify-between">
+    <header className="sticky top-0 z-40 border-b border-white/[0.06] glass-panel safe-area-top px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-3">
         <Image src="/logo.png" alt="Project X" width={32} height={32} className="rounded-lg" />
         <div>

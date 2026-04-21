@@ -634,7 +634,7 @@ export default function ChatPage() {
     <div className="flex-1 flex flex-col min-h-0 relative" style={{ backgroundColor: '#0a0a0a' }}>
       {/* Header */}
       <div
-        className="flex-shrink-0 px-4 py-3 flex items-center gap-3"
+        className="flex-shrink-0 safe-area-top px-4 py-3 flex items-center gap-3"
         style={{
           background: 'linear-gradient(180deg, rgba(17,17,17,0.98) 0%, rgba(10,10,10,0.95) 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
@@ -687,7 +687,7 @@ export default function ChatPage() {
             )}
           >
             <MessageCircle className="w-3.5 h-3.5" />
-            Mi Instituto
+            Mi Grupo
           </button>
           <button
             onClick={() => { setActiveTab('general'); setMessages([]) }}
@@ -810,11 +810,17 @@ export default function ChatPage() {
           </div>
         ) : chatMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(228,30,43,0.08)' }}>
-              <MessageCircle className="h-7 w-7" style={{ color: 'rgba(228,30,43,0.3)' }} />
+            <div
+              className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+              style={{
+                background: 'linear-gradient(135deg, rgba(228,30,43,0.18) 0%, rgba(228,30,43,0.08) 100%)',
+                border: '1px solid rgba(228,30,43,0.28)',
+              }}
+            >
+              <MessageCircle className="h-9 w-9" style={{ color: '#E41E2B' }} strokeWidth={2} />
             </div>
-            <p className="text-gray-500 text-sm">No hay mensajes todavia</p>
-            <p className="text-gray-700 text-xs mt-1">
+            <p className="text-white/90 text-[15px] font-semibold">No hay mensajes todavia</p>
+            <p className="text-gray-400 text-[12px] mt-1.5">
               {activeTab === 'general' ? 'Escribe algo para todos los del venue' : 'Se el primero en escribir algo'}
             </p>
           </div>
@@ -1062,17 +1068,15 @@ export default function ChatPage() {
               className={cn(
                 'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
                 cooldownLeft > 0
-                  ? 'opacity-50'
+                  ? 'opacity-70'
                   : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
-                    ? 'opacity-100 active:scale-90'
-                    : 'opacity-30'
+                    ? 'opacity-100 active:scale-90 shadow-[0_4px_14px_rgba(228,30,43,0.35)]'
+                    : 'opacity-90'
               )}
               style={{
                 background: cooldownLeft > 0
                   ? 'rgba(255,255,255,0.1)'
-                  : inputValue.trim() && inputValue.length <= MAX_MSG_LENGTH
-                    ? 'linear-gradient(135deg, #E41E2B 0%, #C41824 100%)'
-                    : 'rgba(228,30,43,0.3)',
+                  : 'linear-gradient(135deg, #E41E2B 0%, #C41824 100%)',
               }}
             >
               {cooldownLeft > 0 ? (

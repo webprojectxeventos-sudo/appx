@@ -81,7 +81,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col md:flex-row min-h-screen text-white bg-background">
       {/* Mobile Header */}
-      <header className="md:hidden sticky top-0 z-40 border-b border-white/[0.06] glass-panel px-4 py-3.5 flex items-center justify-between">
+      <header className="md:hidden sticky top-0 z-40 border-b border-white/[0.06] glass-panel safe-area-top px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Image src="/logo.png" alt="Logo" width={32} height={32} className="rounded-lg" />
           <div>

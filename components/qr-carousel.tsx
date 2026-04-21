@@ -299,9 +299,12 @@ export function QRCarousel({ tickets, userName }: Props) {
                     <Maximize2 className="w-3.5 h-3.5 text-gold/50 flex-shrink-0 group-active:text-gold transition-colors" />
                   </div>
 
-                  <p className="relative text-[10px] text-white/35 text-center mt-3 pt-3 border-t border-white/5">
-                    Toca para pantalla completa
-                  </p>
+                  <div className="relative flex items-center justify-center gap-1.5 mt-3 pt-3 border-t border-white/10">
+                    <Maximize2 className="w-3 h-3 text-gold/60" />
+                    <p className="text-[11px] text-white/60 font-medium">
+                      Toca para ampliar
+                    </p>
+                  </div>
                 </button>
               </div>
             )
