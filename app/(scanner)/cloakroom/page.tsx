@@ -10,6 +10,11 @@ import {
   Undo2, Hash, Euro, Shirt, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  startFastScanner,
+  humanizeCameraError,
+  type FastScannerHandle,
+} from '@/lib/scanner/fast-scan-engine'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -116,8 +121,9 @@ export default function CloakroomPage() {
   }, [items])
 
   // Refs
-  const scannerRef = useRef<HTMLDivElement>(null)
-  const html5QrRef = useRef<unknown>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  /** Fast-scanner handle (BarcodeDetector native or ZXing fallback). */
+  const engineRef = useRef<FastScannerHandle | null>(null)
   const processingRef = useRef(false)
   const resultTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -170,66 +176,77 @@ export default function CloakroomPage() {
 
   // ── QR Scanner ──────────────────────────────────────────────────────────
 
+  // Scan handler extracted so the fast-engine callback stays thin. The
+  // cloakroom flow is still server-authoritative (unlike the ticket
+  // scanner) because check-in/check-out state lives only in the DB — we
+  // can't optimistically decide locally. That's fine: the operation is
+  // off the critical path for admission, so a ~300 ms round-trip is
+  // acceptable here.
+  const handleCloakroomQr = useCallback(
+    async (decodedText: string) => {
+      if (processingRef.current) return
+      processingRef.current = true
+
+      try {
+        const res = await authFetch('/api/cloakroom/action', {
+          qr_code: decodedText,
+          event_id: selectedEventId,
+          amount: price,
+        })
+        const data = await res.json()
+
+        if (res.ok) {
+          if (soundEnabledRef.current) playBeep(true)
+          haptic(true)
+          setResult({ success: true, ...data })
+          loadData()
+        } else {
+          if (soundEnabledRef.current) playBeep(false)
+          haptic(false)
+          setResult({ success: false, error: data.error || 'Error desconocido' })
+        }
+      } catch {
+        if (soundEnabledRef.current) playBeep(false)
+        setResult({ success: false, error: 'Error de conexion' })
+      }
+
+      // Auto-clear result after 3s
+      if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current)
+      resultTimeoutRef.current = setTimeout(() => {
+        setResult(null)
+        processingRef.current = false
+      }, 3000)
+    },
+    [selectedEventId, price, loadData],
+  )
+
   const startScanner = useCallback(async () => {
-    if (!scannerRef.current || html5QrRef.current) return
+    if (!videoRef.current || engineRef.current) return
     setCameraError(null)
     try {
-      const { Html5Qrcode } = await import('html5-qrcode')
-      const scanner = new Html5Qrcode('cloakroom-qr-reader')
-      html5QrRef.current = scanner
-
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
-        async (decodedText: string) => {
-          if (processingRef.current) return
-          processingRef.current = true
-
-          try {
-            const res = await authFetch('/api/cloakroom/action', {
-              qr_code: decodedText,
-              event_id: selectedEventId,
-              amount: price,
-            })
-            const data = await res.json()
-
-            if (res.ok) {
-              if (soundEnabledRef.current) playBeep(true)
-              haptic(true)
-              setResult({ success: true, ...data })
-              loadData()
-            } else {
-              if (soundEnabledRef.current) playBeep(false)
-              haptic(false)
-              setResult({ success: false, error: data.error || 'Error desconocido' })
-            }
-          } catch {
-            if (soundEnabledRef.current) playBeep(false)
-            setResult({ success: false, error: 'Error de conexion' })
-          }
-
-          // Auto-clear result after 3s
-          if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current)
-          resultTimeoutRef.current = setTimeout(() => {
-            setResult(null)
-            processingRef.current = false
-          }, 3000)
+      const handle = await startFastScanner({
+        videoEl: videoRef.current,
+        onDetect: (qr) => {
+          void handleCloakroomQr(qr)
         },
-        () => { /* ignore failed reads */ },
-      )
+      })
+      engineRef.current = handle
       setScanning(true)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al iniciar camara'
-      setCameraError(msg.includes('NotAllowedError') ? 'Permiso de camara denegado. Activalo en Ajustes.' : msg)
+    } catch (err) {
+      setCameraError(humanizeCameraError(err))
     }
-  }, [selectedEventId, price, loadData])
+  }, [handleCloakroomQr])
 
   const stopScanner = useCallback(async () => {
-    const scanner = html5QrRef.current as { stop?: () => Promise<void> } | null
-    if (scanner?.stop) {
-      try { await scanner.stop() } catch { /* ignore */ }
+    const handle = engineRef.current
+    engineRef.current = null
+    if (handle) {
+      try {
+        await handle.stop()
+      } catch {
+        /* ignore */
+      }
     }
-    html5QrRef.current = null
     setScanning(false)
   }, [])
 
@@ -457,22 +474,30 @@ export default function CloakroomPage() {
           <div className="card overflow-hidden">
             <div className="relative">
               <div
-                id="cloakroom-qr-reader"
-                ref={scannerRef}
-                className={cn('w-full aspect-square bg-black/40', !scanning && 'flex items-center justify-center')}
+                className={cn('w-full aspect-square bg-black/40 relative', !scanning && !cameraError && 'flex items-center justify-center')}
               >
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  autoPlay
+                  className={cn(
+                    'absolute inset-0 w-full h-full object-cover',
+                    !scanning && 'hidden',
+                  )}
+                />
                 {!scanning && !cameraError && (
                   <button
                     onClick={startScanner}
                     disabled={!selectedEventId}
-                    className="flex flex-col items-center gap-3 text-white-muted hover:text-white transition-colors p-8"
+                    className="flex flex-col items-center gap-3 text-white-muted hover:text-white transition-colors p-8 relative"
                   >
                     <Camera className="w-12 h-12" />
                     <span className="text-sm">Pulsa para escanear</span>
                   </button>
                 )}
-                {cameraError && (
-                  <div className="text-center p-6">
+                {cameraError && !scanning && (
+                  <div className="text-center p-6 relative">
                     <XCircle className="w-10 h-10 text-red-400 mx-auto mb-2" />
                     <p className="text-sm text-red-400">{cameraError}</p>
                     <button onClick={startScanner} className="mt-3 text-xs text-primary">Reintentar</button>

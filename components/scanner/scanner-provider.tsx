@@ -57,6 +57,10 @@ interface ScannerContextValue {
 
   // Refs for scanner callback (stale-closure safe)
   attendeesRef: React.MutableRefObject<AttendeeRow[]>
+  /** O(1) qr_code → attendee lookup used by the scanner hot path. */
+  attendeesByQrRef: React.MutableRefObject<Map<string, AttendeeRow>>
+  /** Reactive version of {@link attendeesByQrRef} for components that need to re-render on change. */
+  attendeesByQr: Map<string, AttendeeRow>
   eventNameMapRef: React.MutableRefObject<Record<string, string>>
   soundEnabledRef: React.MutableRefObject<boolean>
   loadAttendeesRef: React.MutableRefObject<() => void>
@@ -134,6 +138,13 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const eventNameMapRef = useRef<Record<string, string>>({})
   const soundEnabledRef = useRef(soundEnabled)
   const loadAttendeesRef = useRef<() => void>(() => {})
+  /**
+   * `qr_code` → attendee index. Built from `attendees` and kept in a ref so
+   * the scanner hot path can resolve a freshly-detected QR in O(1) without
+   * re-rendering the whole tree. The derived `attendeesByQr` memo below is
+   * the authoritative source; this ref just shadows it for callback use.
+   */
+  const attendeesByQrRef = useRef<Map<string, AttendeeRow>>(new Map())
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
@@ -203,6 +214,19 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     if (selectedEventId === 'all') return attendees
     return attendees.filter((a) => a.event_id === selectedEventId)
   }, [attendees, selectedEventId])
+
+  /**
+   * QR → attendee index. Built over the **unfiltered** attendees list so the
+   * scanner can still validate tickets from other events at the same venue
+   * even when the operator has scoped the view to one event (common case:
+   * a guest shows up at the wrong event group — we still want to identify
+   * the ticket and give a useful error).
+   */
+  const attendeesByQr = useMemo(() => {
+    const m = new Map<string, AttendeeRow>()
+    for (const a of attendees) m.set(a.qr_code, a)
+    return m
+  }, [attendees])
 
   const doorCount = useMemo(
     () => filteredAttendees.filter((a) => a.qr_code.startsWith('DOOR-')).length,
@@ -292,6 +316,9 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     attendeesRef.current = attendees
   }, [attendees])
+  useEffect(() => {
+    attendeesByQrRef.current = attendeesByQr
+  }, [attendeesByQr])
   useEffect(() => {
     eventNameMapRef.current = eventNameMap
   }, [eventNameMap])
@@ -543,6 +570,8 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       soundEnabled,
       setSoundEnabled,
       attendeesRef,
+      attendeesByQr,
+      attendeesByQrRef,
       eventNameMapRef,
       soundEnabledRef,
       loadAttendeesRef,
@@ -571,6 +600,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       selectedEventId,
       setSelectedEventId,
       filteredAttendees,
+      attendeesByQr,
       loadAttendees,
       patchAttendee,
       soundEnabled,
