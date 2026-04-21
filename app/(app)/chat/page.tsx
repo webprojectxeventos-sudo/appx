@@ -165,11 +165,26 @@ export default function ChatPage() {
     }
   }, [showReactionsFor])
 
+  // Night-scoped window for the general chat. We don't want new groups at a
+  // venue to inherit every general message ever sent there — messages from
+  // previous nights would leak in. Window runs from 12h before the user's
+  // active event start to 24h after, covering pre-party arrival, the event
+  // itself, and the after. Events the same night have overlapping windows,
+  // so their general chats stay joined (which is the whole point).
+  const generalWindow = useCallback(() => {
+    if (!event?.date) return null
+    const eventStart = new Date(event.date).getTime()
+    return {
+      start: new Date(eventStart - 12 * 60 * 60 * 1000).toISOString(),
+      end: new Date(eventStart + 24 * 60 * 60 * 1000).toISOString(),
+    }
+  }, [event?.date])
+
   // Fetch messages with sender names and reactions
   const fetchMessages = useCallback(async () => {
     if (!user?.id) return
     if (activeTab === 'private' && !event?.id) return
-    if (activeTab === 'general' && !venue?.id) return
+    if (activeTab === 'general' && (!venue?.id || !event?.date)) return
 
     try {
       let query = supabase
@@ -181,7 +196,13 @@ export default function ChatPage() {
       if (activeTab === 'private') {
         query = query.eq('event_id', event!.id).eq('is_general', false)
       } else {
-        query = query.eq('venue_id', venue!.id).eq('is_general', true)
+        const win = generalWindow()
+        if (!win) return
+        query = query
+          .eq('venue_id', venue!.id)
+          .eq('is_general', true)
+          .gte('created_at', win.start)
+          .lte('created_at', win.end)
       }
 
       const { data: msgData, error: msgError } = await query
@@ -314,6 +335,25 @@ export default function ChatPage() {
         (payload) => {
           const newMsg = payload.new as Message
 
+          // Extra client-side filter for general tab: Supabase realtime only
+          // supports simple eq filters, so we re-check (is_general + night
+          // window) here to prevent messages from OTHER nights at the same
+          // venue from leaking into this user's live feed. Without this,
+          // someone at the venue tomorrow could still show up in tonight's
+          // chat as they type.
+          if (activeTab === 'general') {
+            if (!newMsg.is_general) return
+            const win = generalWindow()
+            if (!win) return
+            const t = new Date(newMsg.created_at).getTime()
+            if (t < new Date(win.start).getTime() || t > new Date(win.end).getTime()) return
+          } else if (activeTab === 'private') {
+            // Guard against any stray general messages arriving on the
+            // private channel (shouldn't happen, but the channel filter is
+            // event_id-only so is_general=true rows would still match).
+            if (newMsg.is_general) return
+          }
+
           // Own message: replace optimistic temp message with real DB message
           if (newMsg.user_id === user?.id) {
             setMessages(prev => {
@@ -405,7 +445,7 @@ export default function ChatPage() {
       supabase.removeChannel(msgChannel)
       supabase.removeChannel(reactChannel)
     }
-  }, [event?.id, venue?.id, activeTab, fetchMessages])
+  }, [event?.id, venue?.id, activeTab, fetchMessages, generalWindow])
 
   const [sendError, setSendError] = useState<string | null>(null)
 
