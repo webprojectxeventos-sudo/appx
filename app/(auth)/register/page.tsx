@@ -530,8 +530,19 @@ export default function RegisterPage() {
               disabled={loading}
             />
 
-            {/* Privacy checkbox */}
-            <label className="flex items-start gap-3 cursor-pointer py-1">
+            {/* Privacy checkbox — made prominent because the previous version
+                was invisible (white/30 text on dark bg, 11px) and people
+                weren't completing registration because they couldn't tell
+                there was a required action. Full contrast + container + pulse
+                when unchecked so it reads as a real step. */}
+            <label
+              className={cn(
+                'flex items-start gap-3 cursor-pointer p-3.5 rounded-xl border transition-all',
+                privacyAccepted
+                  ? 'bg-primary/10 border-primary/40'
+                  : 'bg-white/[0.03] border-white/20 hover:border-white/40'
+              )}
+            >
               <div className="relative flex-shrink-0 mt-0.5">
                 <input
                   type="checkbox"
@@ -542,22 +553,22 @@ export default function RegisterPage() {
                 />
                 <div
                   className={cn(
-                    'w-5 h-5 rounded-md border transition-all flex items-center justify-center',
+                    'w-6 h-6 rounded-md border-2 transition-all flex items-center justify-center',
                     privacyAccepted
-                      ? 'bg-primary/20 border-primary/50'
-                      : 'bg-transparent border-white/[0.08]'
+                      ? 'bg-primary border-primary'
+                      : 'bg-transparent border-white/60'
                   )}
                 >
-                  {privacyAccepted && <Check className="w-3 h-3 text-primary" />}
+                  {privacyAccepted && <Check className="w-4 h-4 text-white" strokeWidth={3} />}
                 </div>
               </div>
-              <p className="text-[11px] text-white/30 leading-relaxed">
+              <p className="text-sm text-white leading-relaxed">
                 He leido y acepto la{' '}
-                <Link href="/privacy" className="text-white/50 hover:text-white underline transition-colors" target="_blank">
+                <Link href="/privacy" className="text-primary font-semibold underline hover:no-underline transition-all" target="_blank">
                   Politica de Privacidad
                 </Link>{' '}
                 y los{' '}
-                <Link href="/terms" className="text-white/50 hover:text-white underline transition-colors" target="_blank">
+                <Link href="/terms" className="text-primary font-semibold underline hover:no-underline transition-all" target="_blank">
                   Terminos de Servicio
                 </Link>
               </p>
