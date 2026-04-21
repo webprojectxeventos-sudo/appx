@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, memo } from 'react'
+import { useEffect, useMemo, useState, useRef, memo } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import {
@@ -63,7 +63,7 @@ function BoltIcon() {
 import { cn, toLocalDateKey } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { QRTicketCard } from '@/components/qr-ticket'
+import { QRCarousel, type CarouselTicket } from '@/components/qr-carousel'
 import dynamic from 'next/dynamic'
 
 const EventMap = dynamic(() => import('@/components/event-map').then(m => ({ default: m.EventMap })), { ssr: false })
@@ -182,7 +182,14 @@ export default function HomePage() {
   useEffect(() => { setHeroFailed(false) }, [heroImageUrl])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [hasDrinkOrder, setHasDrinkOrder] = useState(false)
-  const [qrCode, setQrCode] = useState<string | null>(null)
+  // Tickets across ALL of the user's events — drives the home QR carousel.
+  // The checklist (that needs the active event's QR) derives `qrCode` from here
+  // so we only pay for one fetch instead of two.
+  const [tickets, setTickets] = useState<CarouselTicket[]>([])
+  const qrCode = useMemo(
+    () => tickets.find((t) => t.id === event?.id)?.qrCode ?? null,
+    [tickets, event?.id],
+  )
   const [schedule, setSchedule] = useState<{ id: string; title: string; start_time: string; end_time: string | null; icon: string }[]>([])
   const [attendeeCount, setAttendeeCount] = useState(0)
   const [weather, setWeather] = useState<{ max: number; min: number; code: number } | null>(null)
@@ -254,24 +261,57 @@ export default function HomePage() {
     return () => { cancelled = true; supabase.removeChannel(channel) }
   }, [event?.id, venue?.id])
 
-  // Check drink order, ticket, and schedule — single round-trip with Promise.all
+  // Check drink order and schedule for the ACTIVE event (these are event-scoped
+  // and change when the user switches events). Tickets across all events are
+  // fetched in a separate effect so they survive event switches.
   useEffect(() => {
     if (!event?.id || !user?.id) return
     let cancelled = false
     Promise.all([
       supabase.from('drink_orders').select('id').eq('event_id', event.id).eq('user_id', user.id).single(),
-      supabase.from('tickets').select('qr_code').eq('event_id', event.id).eq('user_id', user.id).single(),
       supabase.from('event_schedule').select('id, title, start_time, end_time, icon').eq('event_id', event.id).order('start_time', { ascending: true }),
       supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('event_id', event.id),
-    ]).then(([drinkRes, ticketRes, scheduleRes, countRes]) => {
+    ]).then(([drinkRes, scheduleRes, countRes]) => {
       if (cancelled) return
       setHasDrinkOrder(!!drinkRes.data)
-      if (ticketRes.data?.qr_code) setQrCode(ticketRes.data.qr_code)
       if (scheduleRes.data) setSchedule(scheduleRes.data)
       setAttendeeCount(countRes.count ?? 0)
     })
     return () => { cancelled = true }
   }, [event?.id, user?.id])
+
+  // Load ALL user tickets with joined event info. Powers the swipeable QR
+  // carousel: un usuario puede tener N entradas (p.ej. dos graduaciones) y
+  // queremos mostrar todas ordenadas por cercania sin obligarle a cambiar
+  // de evento activo.
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    supabase
+      .from('tickets')
+      .select('qr_code, event_id, events!inner(id, title, date, location)')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        const mapped: CarouselTicket[] = []
+        for (const row of data as unknown as Array<{
+          qr_code: string | null
+          event_id: string
+          events: { id: string; title: string; date: string; location: string | null } | null
+        }>) {
+          if (!row.qr_code || !row.events) continue
+          mapped.push({
+            id: row.events.id,
+            eventName: row.events.title,
+            eventDate: row.events.date,
+            eventLocation: row.events.location,
+            qrCode: row.qr_code,
+          })
+        }
+        setTickets(mapped)
+      })
+    return () => { cancelled = true }
+  }, [user?.id])
 
   // Fetch weather forecast for event day (OpenMeteo — free, no API key)
   useEffect(() => {
@@ -557,13 +597,15 @@ export default function HomePage() {
         )
       })()}
 
-      {/* Ticket / Complete Order Banner */}
-      {qrCode ? (
-        <QRTicketCard
-          qrCode={qrCode}
-          userName={profile?.full_name || ''}
-          eventName={event.title}
-        />
+      {/* Ticket carousel / Complete Order Banner.
+          - Si el usuario tiene entradas, mostramos TODAS en un carousel
+            deslizable ordenadas por cercania (la mas proxima primero).
+          - Si no tiene ninguna y aun no ha hecho el pedido, le invitamos a
+            completarlo.
+          - Si ya ha pedido bebidas pero el ticket esta generandose, no
+            mostramos nada (se hidrata cuando termine la generacion). */}
+      {tickets.length > 0 ? (
+        <QRCarousel tickets={tickets} userName={profile?.full_name || ''} />
       ) : !hasDrinkOrder ? (
         <Link href="/polls" className="card-glow p-4 flex items-center gap-3 active:scale-[0.98] transition-transform animate-glow-pulse">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center flex-shrink-0">
