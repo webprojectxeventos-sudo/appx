@@ -7,6 +7,7 @@ import { authFetch } from '@/lib/auth-fetch'
 import { useToast } from '@/components/ui/toast'
 import { Calendar, ChevronRight, Plus, Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { QRPillButton } from '@/components/qr-pill-button'
 
 // Mapea el `error` string que devuelve redeem_access_code a copia para toast.
 // Dejo la logica de i18n aqui para poder iterar sin tocar SQL.
@@ -43,44 +44,54 @@ export default function EventsPage() {
   const { user, profile, event: currentEvent, refreshProfile } = useAuth()
   const { error: showError, success } = useToast()
   const [events, setEvents] = useState<UserEvent[]>([])
+  // Map event_id -> qr_code. El usuario puede tener N eventos y queremos
+  // mostrar el QR de cada uno sin tener que cambiar el activo.
+  const [tickets, setTickets] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
   const [switching, setSwitching] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadEventsAndTickets = async (): Promise<void> => {
     if (!user?.id) return
-    let cancelled = false
-    const loadEvents = async () => {
-      setLoading(true)
-
-      const { data } = await supabase
+    const [eventsRes, ticketsRes] = await Promise.all([
+      supabase
         .from('user_events')
         .select('event_id, role, events!inner(id, title, date, location, event_type, cover_image_url)')
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .order('joined_at', { ascending: false })
-
-      if (cancelled) return
-      if (data) setEvents(data as unknown as UserEvent[])
-      setLoading(false)
+        .order('joined_at', { ascending: false }),
+      supabase
+        .from('tickets')
+        .select('event_id, qr_code')
+        .eq('user_id', user.id),
+    ])
+    if (eventsRes.data) setEvents(eventsRes.data as unknown as UserEvent[])
+    if (ticketsRes.data) {
+      const map: Record<string, string> = {}
+      for (const t of ticketsRes.data) {
+        if (t.event_id && t.qr_code) map[t.event_id] = t.qr_code
+      }
+      setTickets(map)
     }
-    loadEvents()
+  }
+
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      await loadEventsAndTickets()
+      if (!cancelled) setLoading(false)
+    }
+    load()
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
   const fetchEvents = async () => {
-    if (!user?.id) return
     setLoading(true)
-
-    const { data } = await supabase
-      .from('user_events')
-      .select('event_id, role, events!inner(id, title, date, location, event_type, cover_image_url)')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('joined_at', { ascending: false })
-
-    if (data) setEvents(data as unknown as UserEvent[])
+    await loadEventsAndTickets()
     setLoading(false)
   }
 
@@ -208,14 +219,16 @@ export default function EventsPage() {
         {events.map((ue) => {
           const ev = ue.events
           const isActive = currentEvent?.id === ev.id
+          const qr = tickets[ev.id]
 
+          // La card no puede ser un <button> porque dentro necesitamos otro
+          // boton (la pill del QR). Separamos: la zona del titulo conmuta el
+          // evento activo; la pill del QR abre el fullscreen.
           return (
-            <button
+            <div
               key={ev.id}
-              onClick={() => switchEvent(ev.id)}
-              disabled={switching === ev.id}
               className={cn(
-                'card p-4 w-full text-left flex items-center gap-3 active:scale-[0.98] transition-all',
+                'card p-4 flex items-center gap-3',
                 isActive && 'border-primary/30'
               )}
             >
@@ -229,20 +242,36 @@ export default function EventsPage() {
                   <Calendar className="w-5 h-5 text-white-muted" />
                 )}
               </div>
-              <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => switchEvent(ev.id)}
+                disabled={switching === ev.id || isActive}
+                className="flex-1 min-w-0 text-left active:scale-[0.98] transition-transform"
+                aria-label={isActive ? `${ev.title} (activo)` : `Activar ${ev.title}`}
+              >
                 <p className="text-sm font-medium text-white truncate">{ev.title}</p>
                 <p className="text-[11px] text-white-muted">
                   {formatDate(ev.date)}
                   {ev.location && ` · ${ev.location}`}
                 </p>
+              </button>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {qr && (
+                  <QRPillButton
+                    qrCode={qr}
+                    eventName={ev.title}
+                    userName={profile?.full_name || ''}
+                  />
+                )}
+                {isActive ? (
+                  <span className="text-[10px] text-primary font-medium px-2 py-0.5 rounded-full bg-primary/10">
+                    Activo
+                  </span>
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-white-muted" />
+                )}
               </div>
-              {isActive && (
-                <span className="text-[10px] text-primary font-medium px-2 py-0.5 rounded-full bg-primary/10">
-                  Activo
-                </span>
-              )}
-              {!isActive && <ChevronRight className="w-4 h-4 text-white-muted" />}
-            </button>
+            </div>
           )
         })}
 
