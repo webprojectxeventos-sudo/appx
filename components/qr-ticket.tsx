@@ -77,7 +77,7 @@ export function QRTicketCard({ qrCode, userName, eventName }: QRTicketProps) {
             <Ticket className="w-4 h-4 text-gold" />
             <p className="text-sm font-bold text-white">Tu entrada</p>
           </div>
-          <p className="text-xs text-white-muted mt-0.5">Toca para ver a pantalla completa</p>
+          <p className="text-xs text-white-muted mt-0.5">Toca para ampliar</p>
         </div>
         <Maximize2 className="w-4 h-4 text-gold/60 flex-shrink-0" />
       </div>
