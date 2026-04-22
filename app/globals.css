@@ -599,13 +599,18 @@ input:focus, select:focus, textarea:focus {
   padding-top: env(safe-area-inset-top, 0px) !important;
 }
 
-/* Header padding: base + safe-area-inset-top (status bar clearance) */
+/* Header padding: MAX(base, safe-area-inset-top).
+   - En iPhone con notch/Dynamic Island, safe-area > base, y el contenido
+     queda pegado justo debajo del status bar (convencion iOS nativa).
+   - En desktop o iPhone en landscape, safe-area = 0 y aplica el base.
+   - Antes usabamos calc(base + safe-area), que creaba un "hueco" de
+     12px extra sobre el status bar en dispositivos con notch. */
 .pt-safe {
-  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)) !important;
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px)) !important;
 }
 
 .pt-safe-sm {
-  padding-top: calc(0.875rem + env(safe-area-inset-top, 0px)) !important;
+  padding-top: max(0.875rem, env(safe-area-inset-top, 0px)) !important;
 }
 
 /* Sticky header "top" offset — cuando se pega al viewport, queda justo

@@ -186,8 +186,9 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      {/* Main Content — extra bottom padding on mobile for bottom nav */}
-      <main className="flex-1 p-4 pb-20 md:p-8 md:pb-8 overflow-y-auto">
+      {/* Main Content — pb en movil = h-16 nav + safe-area (home indicator).
+         En desktop no hay nav inferior, asi que md:pb-8 lo sobreescribe. */}
+      <main className="flex-1 p-4 pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:p-8 md:pb-8 overflow-y-auto">
         {children}
       </main>
     </div>

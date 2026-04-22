@@ -328,7 +328,11 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   return (
     <>
       <AppHeader />
-      <main className="flex-1" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
+      {/* Main padding-bottom = h-16 nav + safe-area-inset-bottom (home indicator).
+         Asi el contenido termina EXACTAMENTE donde empieza la nav, sin hueco
+         intermedio. Arbitrary value (no inline style) para que Turbopack lo
+         sirva bien en el HTML inicial. */}
+      <main className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom,0px))]">
         <div className="p-4 max-w-lg mx-auto">{children}</div>
       </main>
       <BottomNav />
