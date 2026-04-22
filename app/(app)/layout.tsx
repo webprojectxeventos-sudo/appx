@@ -131,8 +131,7 @@ function AppHeader() {
 
   return (
     <header
-      className="sticky top-0 z-40 border-b border-white/[0.06] glass-panel px-4 pb-3 flex items-center justify-between"
-      style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+      className="sticky top-0 z-40 border-b border-white/[0.06] glass-panel px-4 pb-3 pt-safe flex items-center justify-between"
     >
       <div className="flex items-center gap-3">
         <Image src="/logo.png" alt="Project X" width={32} height={32} className="rounded-lg" />

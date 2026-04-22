@@ -577,14 +577,41 @@ input:focus, select:focus, textarea:focus {
   scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
-/* ── Safe area for iPhone notch / home bar ────────────── */
+/* ── Safe area for iPhone notch / Dynamic Island / home bar ───
+   Usadas directamente en clases porque inline `style={{}}` a veces
+   no se aplica bien en el HTML server-rendered de Next.js 16 con
+   Turbopack. Con clase CSS nos aseguramos de que la cascada gana
+   siempre frente a utilidades Tailwind que pongan padding-top:0.
+
+   Notas:
+   - `env()` devuelve el inset solo cuando `viewport-fit=cover` esta
+     activo (lo tenemos en app/layout.tsx).
+   - En navegador normal sin safe-area, env() devuelve 0 y queda el
+     valor base (0.75rem / 0.875rem).
+   - `!important` evita que cualquier Tailwind utility (como py-3)
+     pise el padding-top. */
 
 .safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
 }
 
 .safe-area-top {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: env(safe-area-inset-top, 0px) !important;
+}
+
+/* Header padding: base + safe-area-inset-top (status bar clearance) */
+.pt-safe {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)) !important;
+}
+
+.pt-safe-sm {
+  padding-top: calc(0.875rem + env(safe-area-inset-top, 0px)) !important;
+}
+
+/* Sticky header "top" offset — cuando se pega al viewport, queda justo
+   debajo del status bar en vez de solapandolo. */
+.top-safe {
+  top: env(safe-area-inset-top, 0px) !important;
 }
 
 /* ── Prevent pull-to-refresh on mobile ────────────────── */

@@ -632,11 +632,13 @@ export default function ChatPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative" style={{ backgroundColor: '#0a0a0a' }}>
-      {/* Header */}
+      {/* Header — pt-safe clears the iOS status bar (Dynamic Island).
+         Usamos clase CSS (no inline style) porque Turbopack a veces
+         no serializa bien env() en el HTML inicial, y la clase con
+         !important garantiza que gana en la cascada. */}
       <div
-        className="flex-shrink-0 px-4 pb-3 flex items-center gap-3"
+        className="flex-shrink-0 px-4 pb-3 pt-safe flex items-center gap-3"
         style={{
-          paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))',
           background: 'linear-gradient(180deg, rgba(17,17,17,0.98) 0%, rgba(10,10,10,0.95) 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           backdropFilter: 'blur(20px)',
