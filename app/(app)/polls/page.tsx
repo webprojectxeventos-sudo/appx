@@ -131,7 +131,8 @@ export default function DrinksPage() {
 
   const handleSubmit = async () => {
     if (!user?.id || !event?.id || !softDrinkChoice) return
-    if (eventType === 'fiesta' && !alcoholChoice) return
+    // Alcohol es opcional — solo exigimos la mezcla (soft drink).
+    // Si el usuario no bebe, puede dejar alcohol sin marcar o pulsar "No bebo".
 
     setSubmitting(true)
     try {
@@ -216,7 +217,9 @@ export default function DrinksPage() {
     )
   }
 
-  const canSubmit = softDrinkChoice && (eventType === 'eso' || alcoholChoice)
+  // Solo la mezcla (soft drink) es obligatoria. El alcohol es opcional para
+  // que quien no bebe no tenga que elegir algo que no consume.
+  const canSubmit = !!softDrinkChoice
 
   // Success state
   if (submitted) {
@@ -233,12 +236,25 @@ export default function DrinksPage() {
         <div className="card divide-y divide-white/5">
           {alcoholChoice && (
             <div className="flex items-center gap-3.5 p-4">
-              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Wine className="w-4.5 h-4.5 text-primary" />
+              <div className={cn(
+                'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
+                alcoholChoice === 'No bebo' ? 'bg-white/5' : 'bg-primary/10',
+              )}>
+                <Wine className={cn(
+                  'w-4.5 h-4.5',
+                  alcoholChoice === 'No bebo' ? 'text-white-muted' : 'text-primary',
+                )} />
               </div>
               <div>
-                <p className="text-[11px] text-white-muted">Sueles beber</p>
-                <p className="text-white font-medium text-sm">{alcoholChoice}</p>
+                <p className="text-[11px] text-white-muted">
+                  {alcoholChoice === 'No bebo' ? 'Alcohol' : 'Sueles beber'}
+                </p>
+                <p className={cn(
+                  'font-medium text-sm',
+                  alcoholChoice === 'No bebo' ? 'text-white-muted' : 'text-white',
+                )}>
+                  {alcoholChoice === 'No bebo' ? 'No bebes alcohol' : alcoholChoice}
+                </p>
               </div>
             </div>
           )}
@@ -286,11 +302,12 @@ export default function DrinksPage() {
       {/* Alcohol Section */}
       {eventType === 'fiesta' && (
         <div className="card p-5">
-          <div className="flex items-center gap-2.5 mb-4">
+          <div className="flex items-center gap-2.5 mb-1">
             <Wine className="w-5 h-5 text-primary" />
             <h2 className="text-base font-bold text-white">Que sueles beber?</h2>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
+          <p className="text-white-muted text-xs mb-4 ml-[30px]">Opcional — si no bebes, marca &quot;No bebo alcohol&quot;</p>
+          <div className="grid grid-cols-2 gap-2.5 mb-2.5">
             {ALCOHOL_OPTIONS.map((drink) => (
               <button
                 key={drink}
@@ -306,6 +323,20 @@ export default function DrinksPage() {
               </button>
             ))}
           </div>
+          {/* Explicit "no alcohol" option — saved as the string 'No bebo' so
+             staff sees it in the dashboard breakdown (distinct from null,
+             which means "didn't answer"). */}
+          <button
+            onClick={() => setAlcoholChoice('No bebo')}
+            className={cn(
+              'w-full px-4 py-2.5 rounded-xl text-xs font-medium text-center border transition-all active:scale-95',
+              alcoholChoice === 'No bebo'
+                ? 'border-white/20 bg-white/[0.08] text-white'
+                : 'border-black-border bg-transparent text-white-muted hover:border-white/15 hover:text-white'
+            )}
+          >
+            No bebo alcohol
+          </button>
         </div>
       )}
 
