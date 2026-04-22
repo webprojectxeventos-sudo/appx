@@ -15,7 +15,6 @@ import {
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useScanner } from './scanner-provider'
-import { EventDayGroups } from './event-day-groups'
 import { playBeep, haptic, formatTime } from './scanner-utils'
 import { useToast } from '@/components/ui/toast'
 import * as outbox from '@/lib/scanner-outbox'
@@ -26,7 +25,12 @@ const INITIAL_VISIBLE = 50
 const LOAD_MORE_STEP = 50
 
 /**
- * ListTab — lista/búsqueda de asistentes del scope seleccionado.
+ * ListTab — lista/búsqueda de asistentes del día seleccionado.
+ *
+ * El scope viene del DÍA elegido en la EventPicker del top. Dentro de un día
+ * todos los grupos se mezclan; si hay >1 grupo se muestra el nombre del
+ * grupo en cada fila (meta text) para que la persona de lista distinga.
+ * No hay filtro por grupo — era redundante con la picker de arriba.
  *
  * Diseño oscuro alineado con el resto de la app:
  *   - Inputs y filtros en glass-strong dark con border-white/10
@@ -41,17 +45,15 @@ const LOAD_MORE_STEP = 50
  */
 export function ListTab() {
   const {
-    // filteredAttendees respects the global per-event selector; all list
-    // operations read from that scoped set.
+    // filteredAttendees is scoped to the selected day; the list tab always
+    // reads from that scoped set.
     filteredAttendees,
-    selectedEventId,
     loadAttendees,
     loadingAttendees,
     eventNameMap,
     stats,
-    eventsByDay,
     eventIds,
-    multipleEvents,
+    multipleEventsInDay,
     soundEnabled,
     venueName,
     online,
@@ -63,7 +65,6 @@ export function ListTab() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'inside' | 'pending'>('all')
-  const [groupFilter, setGroupFilter] = useState<string>('all')
   const [copied, setCopied] = useState(false)
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
@@ -72,11 +73,11 @@ export function ListTab() {
 
   // ── Filters ──────────────────────────────────────────────────────────────
 
-  // "searchedAttendees" = the provider-filtered set (scoped to selected event)
-  // further narrowed by the in-tab search, status, and group filters.
+  // "searchedAttendees" = the day-scoped set further narrowed by search +
+  // status filter. No group filter — we already picked a day up top.
   const searchedAttendees = useMemo(() => {
     const trimmed = searchQuery.trim()
-    if (!trimmed && statusFilter === 'all' && groupFilter === 'all') {
+    if (!trimmed && statusFilter === 'all') {
       return attendees
     }
     // When there's a search query, compute a score per row and sort best-first.
@@ -85,7 +86,6 @@ export function ListTab() {
     for (const a of attendees) {
       if (statusFilter === 'inside' && a.status !== 'used') continue
       if (statusFilter === 'pending' && a.status === 'used') continue
-      if (groupFilter !== 'all' && a.event_id !== groupFilter) continue
       if (!trimmed) {
         scored.push({ att: a, score: 0 })
         continue
@@ -99,7 +99,7 @@ export function ListTab() {
     }
     if (trimmed) scored.sort((x, y) => y.score - x.score)
     return scored.map((s) => s.att)
-  }, [attendees, statusFilter, groupFilter, searchQuery, eventNameMap])
+  }, [attendees, statusFilter, searchQuery, eventNameMap])
 
   // Reset visible count when filters change
   const visibleAttendees = useMemo(
@@ -321,9 +321,12 @@ export function ListTab() {
       msg += `Puerta: ${doorTotal}\n`
     }
 
-    if (multipleEvents) {
+    if (multipleEventsInDay) {
+      // Break the day down by group when it has more than one.
+      const eventsInScope = new Set(attendees.map((a) => a.event_id))
       msg += '\n'
-      for (const [eventId, name] of Object.entries(eventNameMap)) {
+      for (const eventId of eventsInScope) {
+        const name = eventNameMap[eventId] || ''
         const evAtt = attendees.filter((a) => a.event_id === eventId)
         const inside = evAtt.filter((a) => a.status === 'used').length
         const pending = evAtt.length - inside
@@ -337,14 +340,14 @@ export function ListTab() {
       msg += `\nPENDIENTES (${noShows.length}):\n`
       noShows.slice(0, 80).forEach((a) => {
         const name = a.user_name || 'Sin nombre'
-        const group = multipleEvents ? ` (${eventNameMap[a.event_id] || ''})` : ''
+        const group = multipleEventsInDay ? ` (${eventNameMap[a.event_id] || ''})` : ''
         msg += `- ${name}${group}\n`
       })
       if (noShows.length > 80) msg += `... y ${noShows.length - 80} mas\n`
     }
 
     return msg
-  }, [attendees, eventNameMap, multipleEvents, stats, venueName])
+  }, [attendees, eventNameMap, multipleEventsInDay, stats, venueName])
 
   const shareExport = async () => {
     const msg = generateExportMessage()
@@ -396,7 +399,9 @@ export function ListTab() {
             }
           }}
           placeholder={
-            multipleEvents ? 'Buscar nombre, email o grupo...' : 'Buscar asistente...'
+            multipleEventsInDay
+              ? 'Buscar nombre, email o grupo...'
+              : 'Buscar asistente...'
           }
           className="w-full pl-10 pr-10 py-3 rounded-xl border border-white/10 bg-white/[0.04] text-white placeholder:text-white/35 text-sm focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/15 transition-all shadow-soft"
         />
@@ -442,21 +447,6 @@ export function ListTab() {
         ))}
       </div>
 
-      {/* Group filter — hidden when the user has already scoped to a single
-          event via the EventPicker at the top of the page (would be redundant). */}
-      {multipleEvents && selectedEventId === 'all' && (
-        <EventDayGroups
-          eventsByDay={eventsByDay}
-          selectedId={groupFilter}
-          onSelect={(id) => {
-            setGroupFilter(id)
-            setVisibleCount(INITIAL_VISIBLE)
-          }}
-          showAll
-          totalCount={eventIds.length}
-        />
-      )}
-
       {/* Actions row */}
       <div className="flex gap-2">
         <button
@@ -485,7 +475,7 @@ export function ListTab() {
       </div>
 
       {/* Filtered count */}
-      {(statusFilter !== 'all' || groupFilter !== 'all' || searchQuery) && (
+      {(statusFilter !== 'all' || searchQuery) && (
         <p className="text-[11px] text-white/55 text-center">
           {searchedAttendees.length} de {attendees.length} asistentes
         </p>
@@ -534,10 +524,10 @@ export function ListTab() {
                   )}
                 </p>
                 <p className="text-[11px] text-white/55 truncate">
-                  {/* Show event name on each row only when rows span multiple
-                      events. When scoped to one, all rows share the same event
-                      — so the label would be repetitive noise. */}
-                  {multipleEvents && selectedEventId === 'all' && eventNameMap[attendee.event_id]
+                  {/* Show event/group name on each row only when the day has
+                      more than one group — otherwise the label would be the
+                      same for every row (noise). */}
+                  {multipleEventsInDay && eventNameMap[attendee.event_id]
                     ? `${eventNameMap[attendee.event_id]} · `
                     : ''}
                   {isDoor ? 'Pago en puerta' : attendee.user_email}
@@ -595,7 +585,7 @@ export function ListTab() {
           <div className="text-center py-10 glass-strong rounded-2xl shadow-soft">
             <Users className="w-8 h-8 text-white/30 mx-auto mb-2" />
             <p className="text-white/55 text-sm">
-              {searchQuery || statusFilter !== 'all' || groupFilter !== 'all'
+              {searchQuery || statusFilter !== 'all'
                 ? 'No se encontraron resultados'
                 : 'No hay asistentes aun'}
             </p>

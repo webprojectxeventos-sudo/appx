@@ -11,7 +11,6 @@ import {
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useScanner } from './scanner-provider'
-import { EventDayGroups } from './event-day-groups'
 import { playBeep, haptic, formatTime } from './scanner-utils'
 import { useToast } from '@/components/ui/toast'
 import * as outbox from '@/lib/scanner-outbox'
@@ -27,52 +26,51 @@ type DoorResult = {
 /**
  * DoorTab — formulario de registro de asistentes que pagan en puerta.
  *
- * Diseño oscuro alineado con el resto de la app:
- *   - Panel principal en glass-strong (dark glass) + rounded-2xl + shadow-soft
- *   - Inputs con border-white/10 / focus:ring primary para foco claro
- *   - Botón primario con gradient primary-light → primary-dark (rojo)
- *   - Feedback cards en emerald-500/10 (OK) / red-500/10 (error)
- *   - Lista de recientes en glass-strong con icono amber para etiquetar
- *     "PUERTA" (semántico: pago presencial)
+ * Scope simplificado (solo DÍA):
+ *   - Si el día seleccionado tiene 1 evento → se usa automáticamente, sin
+ *     picker. Se muestra un hint "Registrando en X".
+ *   - Si el día tiene ≥2 eventos/grupos → fila plana de pills con solo los
+ *     grupos de ese día (sin agrupaciones por día adicionales que confundan).
+ *
+ * Diseño oscuro alineado con el resto de la app (glass-strong, primary red).
  */
 export function DoorTab() {
   const {
-    eventsByDay,
-    // Use filteredAttendees so the "recent entries" + door count respect
-    // the global per-event selector.
+    // Door entries listed below respect the day scope.
     filteredAttendees: attendees,
-    selectedEventId,
     loadAttendees,
     soundEnabled,
-    multipleEvents,
+    selectedDayEvents,
+    multipleEventsInDay,
     eventNameMap,
-    eventIds,
     online,
   } = useScanner()
-  // Only show the per-row event label when rows mix multiple events.
-  // When scoped to one event, the label would repeat on every row.
-  const showEventLabel = multipleEvents && selectedEventId === 'all'
+  // When the day has multiple events we still show the per-row event label
+  // so the operator can tell which group a recent door entry belongs to.
+  const showEventLabel = multipleEventsInDay
   const toast = useToast()
 
   const [doorName, setDoorName] = useState('')
   const [doorEventId, setDoorEventId] = useState<string>('')
-
-  // If the user selected a specific event globally, auto-sync the door form to
-  // register in that same event (avoids mismatch between what they're viewing
-  // and what they're registering).
-  useEffect(() => {
-    if (selectedEventId !== 'all') setDoorEventId(selectedEventId)
-  }, [selectedEventId])
   const [doorPromoterCode, setDoorPromoterCode] = useState('')
   const [doorLoading, setDoorLoading] = useState(false)
   const [doorResult, setDoorResult] = useState<DoorResult | null>(null)
 
-  // Default to first event
+  // Keep doorEventId pinned to a valid event inside the selected day. When the
+  // operator changes day (or selectedDayEvents arrives), snap to the first
+  // event of that day so the register button is always actionable.
   useEffect(() => {
-    if (eventIds.length > 0 && !doorEventId) setDoorEventId(eventIds[0])
-  }, [eventIds, doorEventId])
+    if (selectedDayEvents.length === 0) {
+      if (doorEventId) setDoorEventId('')
+      return
+    }
+    if (!selectedDayEvents.some((e) => e.id === doorEventId)) {
+      setDoorEventId(selectedDayEvents[0].id)
+    }
+  }, [selectedDayEvents, doorEventId])
 
-  // Door entries
+  // Door entries in scope — the ones that will show under "Ultimas entradas"
+  // and power the "Entradas en puerta hoy" counter.
   const doorEntries = useMemo(
     () => attendees.filter((a) => a.qr_code.startsWith('DOOR-')).slice(0, 10),
     [attendees],
@@ -214,25 +212,53 @@ export function DoorTab() {
           />
         </div>
 
-        {/* Event selector — hidden when the user has already scoped to one
-            event via the EventPicker at the top of the page (the doorEventId
-            auto-syncs to that same event, making this picker redundant). */}
-        {multipleEvents && selectedEventId === 'all' && (
+        {/* Event disambiguation — only when the day has >1 group.
+            Flat pill row, no day grouping (that would be redundant since we
+            already picked the day up top). */}
+        {multipleEventsInDay && (
           <div className="space-y-2">
             <label className="text-[11px] text-white/55 font-semibold uppercase tracking-wider">
-              Grupo
+              Grupo de esta noche
             </label>
-            <EventDayGroups
-              eventsByDay={eventsByDay}
-              selectedId={doorEventId}
-              onSelect={(id) => setDoorEventId(id)}
-            />
+            <div className="flex gap-1.5 flex-wrap">
+              {selectedDayEvents.map((ev) => {
+                const selected = doorEventId === ev.id
+                const name = ev.group_name || ev.title
+                const time = new Date(ev.date).toLocaleTimeString('es-ES', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                })
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => setDoorEventId(ev.id)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 border',
+                      selected
+                        ? 'bg-primary/15 border-primary/45 text-primary-light shadow-soft'
+                        : 'bg-white/[0.03] border-white/[0.08] text-white/70 hover:border-white/15 hover:bg-white/[0.05]',
+                    )}
+                  >
+                    <span className="truncate max-w-[160px]">{name}</span>
+                    <span
+                      className={cn(
+                        'text-[10px] tabular-nums font-normal',
+                        selected ? 'text-primary-light/80' : 'text-white/40',
+                      )}
+                    >
+                      {time}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
 
-        {/* When scoped to a specific event, surface a small hint so the user
-            sees WHICH event this registration will be applied to. */}
-        {multipleEvents && selectedEventId !== 'all' && eventNameMap[doorEventId] && (
+        {/* One-event-day hint so the operator knows WHERE this registration lands. */}
+        {!multipleEventsInDay && eventNameMap[doorEventId] && (
           <p className="text-[11px] text-white/55">
             Registrando en{' '}
             <span className="text-white font-semibold">
@@ -244,10 +270,10 @@ export function DoorTab() {
         {/* Register button */}
         <button
           onClick={registerDoor}
-          disabled={!doorName.trim() || doorLoading}
+          disabled={!doorName.trim() || doorLoading || !doorEventId}
           className={cn(
             'w-full py-3.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 text-white bg-gradient-to-br from-primary-light via-primary to-primary-dark shadow-[0_6px_20px_rgba(228,30,43,0.35)] hover:brightness-110 active:scale-[0.98] transition-all',
-            (!doorName.trim() || doorLoading) && 'opacity-40 pointer-events-none',
+            (!doorName.trim() || doorLoading || !doorEventId) && 'opacity-40 pointer-events-none',
           )}
         >
           {doorLoading ? (

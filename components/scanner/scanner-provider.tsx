@@ -32,18 +32,25 @@ interface ScannerContextValue {
   eventNameMap: Record<string, string>
   eventsByDay: DayGroup[]
   doorCount: number
-  multipleEvents: boolean
 
   // Loading state
   loadingAttendees: boolean
   bootstrapError: string | null
 
-  // Per-event focus — 'all' means show everything at the venue, else only that event's tickets.
-  // Stats, doorCount, and metrics all respect the selection so the scanner page can show
-  // meaningful per-event data instead of mixing everything together.
-  selectedEventId: string | 'all'
-  setSelectedEventId: (id: string | 'all') => void
-  /** Filtered set: either all attendees (when selectedEventId==='all') or just the picked event. */
+  // Day-level focus — 'all' means show every day at this venue, else only that day's events.
+  // Stats, doorCount, metrics, and per-tab filtering all respect this scope so the scanner
+  // is "one day at a time" (the venue is implicit in the login; the operator only needs
+  // to pick which day they're working). Per-group selection is intentionally removed —
+  // inside a day, all groups are aggregated automatically.
+  selectedDayKey: string | 'all'
+  setSelectedDayKey: (key: string | 'all') => void
+  /** Events belonging to the currently selected day (or all venue events when 'all'). */
+  selectedDayEvents: ScannerEvent[]
+  /** True when there is more than one day to choose from — drives the day-picker UI. */
+  multipleDays: boolean
+  /** True when the current day has more than one event/group — drives door-tab disambiguation. */
+  multipleEventsInDay: boolean
+  /** Filtered set: attendees belonging to the events of the selected day. */
   filteredAttendees: AttendeeRow[]
 
   // Actions
@@ -110,20 +117,22 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [pendingItems, setPendingItems] = useState<outbox.OutboxItem[]>([])
 
-  // Which event the scanner is focused on. 'all' = show venue-wide (current default).
+  // Which day the scanner is focused on. 'all' = show every day at this venue.
   // Persisted in sessionStorage so a page reload keeps the same focus during the event.
-  const [selectedEventId, setSelectedEventIdState] = useState<string | 'all'>(() => {
+  // Per-group selection was removed on purpose — the operator picks venue (implicit via
+  // login) + day, and everything inside that day is aggregated.
+  const [selectedDayKey, setSelectedDayKeyState] = useState<string | 'all'>(() => {
     if (typeof window === 'undefined') return 'all'
     try {
-      return (sessionStorage.getItem('scanner:selectedEventId') as string) || 'all'
+      return (sessionStorage.getItem('scanner:selectedDayKey') as string) || 'all'
     } catch {
       return 'all'
     }
   })
-  const setSelectedEventId = useCallback((id: string | 'all') => {
-    setSelectedEventIdState(id)
+  const setSelectedDayKey = useCallback((key: string | 'all') => {
+    setSelectedDayKeyState(key)
     try {
-      sessionStorage.setItem('scanner:selectedEventId', id)
+      sessionStorage.setItem('scanner:selectedDayKey', key)
     } catch {
       /* sessionStorage may be disabled */
     }
@@ -186,23 +195,72 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       })
   }, [serverEvents])
 
-  const multipleEvents = eventIds.length > 0
+  // Selected-day derivations. All per-scope state (stats, filtered list, metrics)
+  // flows from `selectedDayEvents` → there is no per-group scope anymore.
+  const selectedDayEvents = useMemo<ScannerEvent[]>(() => {
+    if (selectedDayKey === 'all') return serverEvents
+    const day = eventsByDay.find((d) => d.key === selectedDayKey)
+    return day?.events ?? []
+  }, [selectedDayKey, eventsByDay, serverEvents])
 
-  // Clear invalid selection if the selected event is no longer in the list
-  // (e.g. event deleted server-side or user was reassigned).
+  const selectedDayEventIds = useMemo(
+    () => new Set(selectedDayEvents.map((e) => e.id)),
+    [selectedDayEvents],
+  )
+
+  const multipleDays = eventsByDay.length > 1
+  const multipleEventsInDay = selectedDayEvents.length > 1
+
+  // Auto-default the day focus when:
+  //   - nothing selected yet (first load, selectedDayKey is 'all'), OR
+  //   - the previously-selected day is no longer in the event list (events
+  //     were rescheduled or the operator was reassigned).
+  // The picker UI doesn't expose 'all' as an option; we prefer a concrete day
+  // so the operator sees a meaningful day-scoped view from the first render.
+  // Preferred day: any day with an event live-ish window (−6h..+24h) >
+  //                earliest upcoming day > earliest day overall.
   useEffect(() => {
-    if (selectedEventId !== 'all' && serverEvents.length > 0 && !eventIds.includes(selectedEventId)) {
-      setSelectedEventIdState('all')
-      try { sessionStorage.removeItem('scanner:selectedEventId') } catch { /* */ }
-    }
-  }, [selectedEventId, eventIds, serverEvents.length])
+    if (eventsByDay.length === 0) return
+    const hasConcreteSelection =
+      selectedDayKey !== 'all' && eventsByDay.some((d) => d.key === selectedDayKey)
+    if (hasConcreteSelection) return
 
-  // Filtered attendees — single source of truth for all per-event derived data.
-  // When 'all' is selected, we pass through the full list (same as before, no overhead).
+    const now = Date.now()
+    const hourMs = 3_600_000
+    let bestKey: string | null = null
+    for (const d of eventsByDay) {
+      const hasLive = d.events.some((ev) => {
+        const delta = new Date(ev.date).getTime() - now
+        return delta >= -6 * hourMs && delta <= 24 * hourMs
+      })
+      if (hasLive) {
+        bestKey = d.key
+        break
+      }
+    }
+    if (!bestKey) {
+      for (const d of eventsByDay) {
+        if (d.events.some((ev) => new Date(ev.date).getTime() >= now - hourMs)) {
+          bestKey = d.key
+          break
+        }
+      }
+    }
+    if (!bestKey) bestKey = eventsByDay[eventsByDay.length - 1].key
+    setSelectedDayKeyState(bestKey)
+    try {
+      sessionStorage.setItem('scanner:selectedDayKey', bestKey)
+    } catch {
+      /* sessionStorage may be disabled */
+    }
+  }, [eventsByDay, selectedDayKey])
+
+  // Filtered attendees — single source of truth for all scoped derived data.
+  // When 'all' is selected we pass through the full list (no overhead).
   const filteredAttendees = useMemo(() => {
-    if (selectedEventId === 'all') return attendees
-    return attendees.filter((a) => a.event_id === selectedEventId)
-  }, [attendees, selectedEventId])
+    if (selectedDayKey === 'all') return attendees
+    return attendees.filter((a) => selectedDayEventIds.has(a.event_id))
+  }, [attendees, selectedDayKey, selectedDayEventIds])
 
   const doorCount = useMemo(
     () => filteredAttendees.filter((a) => a.qr_code.startsWith('DOOR-')).length,
@@ -532,11 +590,13 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       eventNameMap,
       eventsByDay,
       doorCount,
-      multipleEvents,
       loadingAttendees,
       bootstrapError,
-      selectedEventId,
-      setSelectedEventId,
+      selectedDayKey,
+      setSelectedDayKey,
+      selectedDayEvents,
+      multipleDays,
+      multipleEventsInDay,
       filteredAttendees,
       loadAttendees,
       patchAttendee,
@@ -565,11 +625,13 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       eventNameMap,
       eventsByDay,
       doorCount,
-      multipleEvents,
       loadingAttendees,
       bootstrapError,
-      selectedEventId,
-      setSelectedEventId,
+      selectedDayKey,
+      setSelectedDayKey,
+      selectedDayEvents,
+      multipleDays,
+      multipleEventsInDay,
       filteredAttendees,
       loadAttendees,
       patchAttendee,
