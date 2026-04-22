@@ -29,12 +29,12 @@ function phaseFor(date: Date, now: Date = new Date()): Phase {
 
 function chipFor(phase: Phase): { label: string; cls: string } {
   if (phase.kind === 'live')
-    return { label: 'En curso', cls: 'text-red-600' }
+    return { label: 'En curso', cls: 'text-red-400' }
   if (phase.kind === 'soon')
-    return { label: phase.label, cls: 'text-emerald-600' }
+    return { label: phase.label, cls: 'text-emerald-400' }
   if (phase.kind === 'upcoming')
-    return { label: phase.label, cls: 'text-gray-500' }
-  return { label: 'Acabó', cls: 'text-gray-400' }
+    return { label: phase.label, cls: 'text-white/55' }
+  return { label: 'Acabó', cls: 'text-white/35' }
 }
 
 function shortDate(date: Date, now: Date = new Date()): string {
@@ -54,13 +54,13 @@ function shortDate(date: Date, now: Date = new Date()): string {
 
 /**
  * Horizontal rail of selectable event pills — the primary navigation surface
- * for scoping what the scanner is looking at. Light theme con pill activa en
- * gradient azul-índigo, "live" sigue siendo rojo semántico (evento en curso,
- * escanea ya) para distinguirse del estado "seleccionado".
+ * para escopar qué está mirando el scanner. Tema oscuro: pill activa con
+ * gradient primary (rojo), "live" sigue siendo rojo semántico (evento en curso,
+ * escanea ya) con un ring extra para distinguirse del estado "seleccionado".
  *
  *  - Todos los eventos visibles a la vez (scroll horizontal si hace falta)
  *  - "Todos" pill de agregación a la izquierda para vista venue-wide
- *  - Pill activa con ring azul + sombra blanda
+ *  - Pill activa con ring primary + gradient sutil
  *  - 1 sólo evento → compact status card (sin rail)
  */
 export function EventPicker() {
@@ -173,7 +173,7 @@ function SingleEventCard({
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle at 0% 50%, rgba(239, 68, 68, 0.10) 0%, transparent 55%)',
+              'radial-gradient(circle at 0% 50%, rgba(228, 30, 43, 0.18) 0%, transparent 55%)',
           }}
         />
       )}
@@ -181,25 +181,35 @@ function SingleEventCard({
       <div className="relative flex items-center gap-3">
         <PhaseDot phase={phase} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-gray-900 truncate leading-tight">{name}</p>
-          <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+          <p className="text-sm font-bold text-white truncate leading-tight">{name}</p>
+          <p className="text-[11px] text-white/55 mt-0.5 tabular-nums">
             <span className={cn('font-semibold', chip.cls)}>{chip.label}</span>
-            <span className="text-gray-300"> · </span>
+            <span className="text-white/20"> · </span>
             <span>{timeLabel}</span>
-            <span className="text-gray-300"> · </span>
+            <span className="text-white/20"> · </span>
             <span>{shortDate(date)}</span>
           </p>
         </div>
         <div className="text-right flex-shrink-0">
-          <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
+          <p className="text-base font-bold text-white tabular-nums leading-tight">
             {counts.inside}
-            <span className="text-gray-400">/{counts.total}</span>
+            <span className="text-white/35">/{counts.total}</span>
           </p>
           {counts.total > 0 && (
-            <p className="text-[10px] text-gray-500 tabular-nums">{pct}%</p>
+            <p className="text-[10px] text-white/50 tabular-nums">{pct}%</p>
           )}
         </div>
       </div>
+
+      {/* Progress strip — emerald fill on dark track */}
+      {counts.total > 0 && (
+        <div className="relative mt-3 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -228,8 +238,8 @@ function AggregatePill({
       className={cn(
         'relative flex-shrink-0 snap-start w-[140px] p-3 rounded-xl text-left transition-all overflow-hidden border',
         active
-          ? 'border-blue-500/60 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-soft'
-          : 'border-gray-200 bg-white/80 hover:border-gray-300 hover:bg-white active:scale-[0.98]',
+          ? 'border-primary/50 bg-gradient-to-br from-primary/15 to-primary/5 shadow-soft'
+          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04] active:scale-[0.98]',
       )}
     >
       {/* Progress strip */}
@@ -237,7 +247,7 @@ function AggregatePill({
         <div
           className={cn(
             'absolute left-0 bottom-0 h-0.5 transition-all duration-500',
-            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-gray-200',
+            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-white/15',
           )}
           style={{ width: `${pct}%` }}
         />
@@ -247,20 +257,20 @@ function AggregatePill({
         <div
           className={cn(
             'w-5 h-5 rounded-md flex items-center justify-center',
-            active ? 'bg-blue-100' : 'bg-gray-100',
+            active ? 'bg-primary/20' : 'bg-white/[0.06]',
           )}
         >
-          <Layers className={cn('w-3 h-3', active ? 'text-blue-600' : 'text-gray-500')} />
+          <Layers className={cn('w-3 h-3', active ? 'text-primary-light' : 'text-white/50')} />
         </div>
-        <p className={cn('text-[10px] uppercase tracking-widest font-semibold', active ? 'text-blue-700' : 'text-gray-500')}>Todos</p>
+        <p className={cn('text-[10px] uppercase tracking-widest font-semibold', active ? 'text-primary-light' : 'text-white/55')}>Todos</p>
       </div>
-      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-gray-900' : 'text-gray-800')}>
+      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-white' : 'text-white/85')}>
         {eventCount} eventos
       </p>
-      <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+      <p className="text-[11px] text-white/55 mt-0.5 tabular-nums">
         {inside}
-        <span className="text-gray-400">/{total}</span>
-        {total > 0 && <span className="text-gray-400"> · {pct}%</span>}
+        <span className="text-white/35">/{total}</span>
+        {total > 0 && <span className="text-white/35"> · {pct}%</span>}
       </p>
     </button>
   )
@@ -296,8 +306,8 @@ function EventPill({
       className={cn(
         'relative flex-shrink-0 snap-start w-[180px] p-3 rounded-xl text-left transition-all overflow-hidden border',
         active
-          ? 'border-blue-500/60 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-soft'
-          : 'border-gray-200 bg-white/80 hover:border-gray-300 hover:bg-white active:scale-[0.98]',
+          ? 'border-primary/50 bg-gradient-to-br from-primary/15 to-primary/5 shadow-soft'
+          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04] active:scale-[0.98]',
       )}
     >
       {/* Progress strip anchored at the bottom */}
@@ -305,7 +315,7 @@ function EventPill({
         <div
           className={cn(
             'absolute left-0 bottom-0 h-0.5 transition-all duration-500',
-            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-gray-200',
+            active ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-white/15',
           )}
           style={{ width: `${pct}%` }}
         />
@@ -316,15 +326,15 @@ function EventPill({
         <p className={cn('text-[10px] uppercase tracking-widest font-semibold', chip.cls)}>
           {chip.label}
         </p>
-        <span className="ml-auto text-[10px] text-gray-400 tabular-nums">{timeLabel}</span>
+        <span className="ml-auto text-[10px] text-white/40 tabular-nums">{timeLabel}</span>
       </div>
-      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-gray-900' : 'text-gray-800')}>
+      <p className={cn('text-sm font-bold truncate leading-tight', active ? 'text-white' : 'text-white/85')}>
         {name}
       </p>
-      <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+      <p className="text-[11px] text-white/55 mt-0.5 tabular-nums">
         {counts.inside}
-        <span className="text-gray-400">/{counts.total}</span>
-        <span className="text-gray-400"> · {shortDate(date)}</span>
+        <span className="text-white/35">/{counts.total}</span>
+        <span className="text-white/35"> · {shortDate(date)}</span>
       </p>
     </button>
   )
@@ -336,7 +346,7 @@ function PhaseDot({ phase, small }: { phase: Phase; small?: boolean }) {
   if (phase.kind === 'live') {
     return (
       <span className="relative inline-flex items-center justify-center">
-        <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full bg-red-500')} />
+        <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]')} />
         <span
           className={cn(
             small ? 'w-2 h-2' : 'w-2.5 h-2.5',
@@ -349,9 +359,9 @@ function PhaseDot({ phase, small }: { phase: Phase; small?: boolean }) {
   }
   const color =
     phase.kind === 'soon'
-      ? 'bg-emerald-500'
+      ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
       : phase.kind === 'upcoming'
-        ? 'bg-gray-400'
-        : 'bg-gray-300'
+        ? 'bg-white/40'
+        : 'bg-white/20'
   return <span className={cn(small ? 'w-2 h-2' : 'w-2.5 h-2.5', 'rounded-full', color)} />
 }

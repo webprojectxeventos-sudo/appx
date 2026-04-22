@@ -41,18 +41,20 @@ function EyeIcon({ className }: { className?: string }) {
 }
 
 /**
- * Scanner layout — isla visual clara dentro de una app principalmente oscura.
+ * Scanner layout — panel operativo oscuro dentro del tema global de la app.
  *
- * Paleta: fondo `bg-dots` + `glass-strong` panels + acento blue-600/indigo-600,
- * siguiendo el look de entradas.projectxeventos.es. El resto de la app (admin,
- * home, cloakroom opcionalmente) sigue su tema oscuro; este layout actúa como
- * un contenedor que re-estila sólo lo que vive bajo /scanner.
+ * Paleta: fondo `bg-dots` dark + `glass-strong` paneles + acento rojo primary
+ * (mismo `#E41E2B` que el resto de la app). La identidad visual del scanner
+ * ya no compite con el admin — es consistente y legible en situaciones de
+ * baja luz típicas de un evento nocturno.
  *
  * Preserva todo el set de features del scanner original:
  *   - Tap-to-confirm logout
  *   - Hi-vis mode (se aplica a `.scanner-root` en globals.css)
  *   - Venue badge con día + contador de eventos activos
  *   - Back-to-admin para usuarios con rol admin / group_admin
+ *   - Safe-area top para iPhone con notch / Dynamic Island
+ *   - Safe-area bottom en <main> para que el home indicator no tape contenido
  */
 function ScannerLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter()
@@ -98,32 +100,34 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
   })
 
   return (
-    <div className="scanner-root min-h-screen bg-dots text-gray-900">
-      {/* Header — glass-strong sticky, acento azul-índigo, iconos neutros */}
-      <header className="sticky top-0 z-40 glass-strong border-b border-gray-200/70 shadow-soft">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+    <div className="scanner-root min-h-screen bg-dots text-white">
+      {/* Header — glass dark sticky con safe-area top para iPhone con notch */}
+      <header className="sticky top-0 z-40 glass-strong border-b border-white/[0.06] shadow-soft pt-safe-sm">
+        <div className="max-w-3xl mx-auto px-4 pb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
             {canGoBackToAdmin && (
               <button
                 onClick={() => router.push('/admin/dashboard')}
-                className="p-1.5 -ml-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                className="p-1.5 -ml-1.5 rounded-lg text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10 transition-colors shrink-0"
                 title="Volver al panel"
                 aria-label="Volver al panel"
               >
                 <ArrowLeftIcon className="w-5 h-5" />
               </button>
             )}
-            <Image src="/logo.png" alt="Project X" width={28} height={28} className="rounded-lg" />
-            <h1 className="font-bold text-sm text-gray-900">{pageTitle}</h1>
+            <Image src="/logo.png" alt="Project X" width={28} height={28} className="rounded-lg shrink-0" />
+            <div className="min-w-0">
+              <h1 className="font-bold text-sm text-white leading-tight truncate">{pageTitle}</h1>
+              <p className="text-[10px] text-white/50 leading-tight truncate">{profile.full_name}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">{profile.full_name}</span>
+          <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={() => toggleHiVis()}
-              className={`p-1.5 rounded-lg transition-all ${
+              className={`p-2 rounded-lg transition-all ${
                 hiVis
-                  ? 'bg-blue-50 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10'
               }`}
               title={hiVis ? 'Modo alta visibilidad activado' : 'Activar alta visibilidad'}
               aria-label="Alternar modo alta visibilidad"
@@ -133,10 +137,10 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
             </button>
             <button
               onClick={handleLogout}
-              className={`p-1.5 rounded-lg transition-all ${
+              className={`p-2 rounded-lg transition-all ${
                 logoutConfirm
-                  ? 'bg-red-50 text-red-600'
-                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                  ? 'bg-red-500/15 text-red-400'
+                  : 'text-white-muted hover:text-white hover:bg-white/5 active:bg-white/10'
               }`}
               title={logoutConfirm ? 'Pulsa de nuevo para cerrar sesion' : 'Cerrar sesion'}
               aria-label="Cerrar sesion"
@@ -146,22 +150,24 @@ function ScannerLayoutContent({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Venue badge */}
+        {/* Venue badge — contexto operativo (sala + día + eventos activos) */}
         {venue?.name && (
           <div className="max-w-3xl mx-auto px-4 pb-2.5 flex items-center gap-1.5">
-            <MapPinIcon className="w-3 h-3 text-blue-600" />
-            <span className="text-[11px] text-gray-500">
-              {venue.name}
-              <span className="text-gray-400"> · {todayLabel}</span>
+            <MapPinIcon className="w-3 h-3 text-primary shrink-0" />
+            <span className="text-[11px] text-white/55 truncate">
+              <span className="text-white/70 font-medium">{venue.name}</span>
+              <span className="text-white/35"> · {todayLabel}</span>
               {activeEventCount > 0 && (
-                <span className="text-gray-400"> · {activeEventCount} evento{activeEventCount !== 1 ? 's' : ''}</span>
+                <span className="text-white/35"> · {activeEventCount} evento{activeEventCount !== 1 ? 's' : ''}</span>
               )}
             </span>
           </div>
         )}
       </header>
 
-      <main className="max-w-3xl mx-auto p-4">
+      {/* Main — padding-bottom con safe-area para que el home indicator iOS
+         no cubra el último elemento */}
+      <main className="max-w-3xl mx-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
         {children}
       </main>
     </div>
@@ -174,9 +180,9 @@ function LoadingScreen() {
       <div className="text-center animate-fade-in">
         <Image src="/logo.png" alt="Project X" width={48} height={48} className="rounded-xl mx-auto mb-4" priority />
         <div className="flex items-center gap-1.5 justify-center">
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" style={{ animationDelay: '0.2s' }} />
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" style={{ animationDelay: '0.4s' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }} />
         </div>
       </div>
     </div>

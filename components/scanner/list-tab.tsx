@@ -28,14 +28,16 @@ const LOAD_MORE_STEP = 50
 /**
  * ListTab — lista/búsqueda de asistentes del scope seleccionado.
  *
- * Diseño claro inspirado en entradas.projectxeventos.es:
- *   - Inputs y filtros en glass-strong / bg-white con border-gray-200
- *   - Pills de estado con colores aireados (emerald-50 dentro, amber-50 pendiente)
- *   - Filas de asistente en glass-strong rounded-xl con accent azul en el check-in
- *   - Asistente "dentro" muestra icono emerald + pill verde clara; pendiente
- *     muestra icono gris neutro + botón check-in primary
- *   - Chip "PUERTA" en amber-100 para distinguir pagos en puerta
- *   - Highlight keyboard (j/k/Enter) con ring blue-500/30 visible pero no invasivo
+ * Diseño oscuro alineado con el resto de la app:
+ *   - Inputs y filtros en glass-strong dark con border-white/10
+ *   - Pills de estado con colores translúcidos (emerald-500/15 dentro,
+ *     amber-500/15 pendiente, primary/15 todos)
+ *   - Filas de asistente en glass-strong rounded-xl con accent primary en
+ *     el botón de check-in
+ *   - Asistente "dentro" muestra icono emerald + pill verde; pendiente muestra
+ *     icono blanco sobre superficie neutra + botón check-in primary
+ *   - Chip "PUERTA" en amber-500/20 para distinguir pagos en puerta
+ *   - Highlight keyboard (j/k/Enter) con ring primary/40 visible pero no invasivo
  */
 export function ListTab() {
   const {
@@ -370,7 +372,7 @@ export function ListTab() {
     <div className="space-y-3">
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
         <input
           ref={searchInputRef}
           type="text"
@@ -396,12 +398,12 @@ export function ListTab() {
           placeholder={
             multipleEvents ? 'Buscar nombre, email o grupo...' : 'Buscar asistente...'
           }
-          className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 transition-all shadow-soft"
+          className="w-full pl-10 pr-10 py-3 rounded-xl border border-white/10 bg-white/[0.04] text-white placeholder:text-white/35 text-sm focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/15 transition-all shadow-soft"
         />
         {searchQuery && (
           <button
             onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-white/[0.08] text-white/50 hover:bg-white/15 hover:text-white transition-colors"
             aria-label="Limpiar búsqueda"
           >
             <X className="w-3 h-3" />
@@ -428,11 +430,11 @@ export function ListTab() {
               'flex-1 px-2 py-2 rounded-lg text-[11px] font-semibold transition-all text-center border',
               statusFilter === f.key
                 ? f.key === 'inside'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-soft'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35 shadow-soft'
                   : f.key === 'pending'
-                    ? 'bg-amber-50 text-amber-700 border-amber-200 shadow-soft'
-                    : 'bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-700 border-blue-500/60 shadow-soft'
-                : 'bg-white/80 text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-white',
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/35 shadow-soft'
+                    : 'bg-primary/15 text-primary-light border-primary/45 shadow-soft'
+                : 'bg-white/[0.03] text-white/70 border-white/[0.08] hover:border-white/15 hover:bg-white/[0.05]',
             )}
           >
             {f.label} ({f.count})
@@ -459,22 +461,22 @@ export function ListTab() {
       <div className="flex gap-2">
         <button
           onClick={shareExport}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-soft"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-white/[0.04] border border-white/10 text-white/80 hover:bg-white/[0.07] hover:text-white active:scale-[0.98] transition-all shadow-soft"
         >
           {copied ? (
-            <Check className="w-3.5 h-3.5 text-emerald-600" />
+            <Check className="w-3.5 h-3.5 text-emerald-400" />
           ) : (
-            <Share2 className="w-3.5 h-3.5 text-blue-600" />
+            <Share2 className="w-3.5 h-3.5 text-primary-light" />
           )}
           {copied ? 'Copiado!' : 'Compartir resumen'}
         </button>
         <button
           onClick={loadAttendees}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-soft"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-white/[0.04] border border-white/10 text-white/80 hover:bg-white/[0.07] hover:text-white active:scale-[0.98] transition-all shadow-soft"
         >
           <RefreshCw
             className={cn(
-              'w-3.5 h-3.5 text-blue-600',
+              'w-3.5 h-3.5 text-primary-light',
               loadingAttendees && 'animate-spin',
             )}
           />
@@ -484,7 +486,7 @@ export function ListTab() {
 
       {/* Filtered count */}
       {(statusFilter !== 'all' || groupFilter !== 'all' || searchQuery) && (
-        <p className="text-[11px] text-gray-500 text-center">
+        <p className="text-[11px] text-white/55 text-center">
           {searchedAttendees.length} de {attendees.length} asistentes
         </p>
       )}
@@ -505,33 +507,33 @@ export function ListTab() {
               onClick={() => setHighlightedId(attendee.id)}
               className={cn(
                 'glass-strong rounded-xl shadow-soft p-3.5 flex items-center gap-3 transition-all cursor-pointer',
-                highlighted && 'ring-2 ring-blue-500/40 border-blue-500/40',
+                highlighted && 'ring-2 ring-primary/45 border-primary/45',
               )}
             >
               <div
                 className={cn(
                   'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 border',
                   isUsed
-                    ? 'bg-emerald-50 border-emerald-200'
-                    : 'bg-gray-100 border-gray-200',
+                    ? 'bg-emerald-500/15 border-emerald-500/30'
+                    : 'bg-white/[0.05] border-white/[0.08]',
                 )}
               >
                 {isUsed ? (
-                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
                 ) : (
-                  <Users className="w-4 h-4 text-gray-500" />
+                  <Users className="w-4 h-4 text-white/55" />
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                <p className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
                   {attendee.user_name || 'Sin nombre'}
                   {isDoor && (
-                    <span className="text-[9px] text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded font-bold shrink-0 tracking-wider">
+                    <span className="text-[9px] text-amber-300 bg-amber-500/15 border border-amber-500/35 px-1.5 py-0.5 rounded font-bold shrink-0 tracking-wider">
                       PUERTA
                     </span>
                   )}
                 </p>
-                <p className="text-[11px] text-gray-500 truncate">
+                <p className="text-[11px] text-white/55 truncate">
                   {/* Show event name on each row only when rows span multiple
                       events. When scoped to one, all rows share the same event
                       — so the label would be repetitive noise. */}
@@ -544,12 +546,12 @@ export function ListTab() {
               {isUsed ? (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {attendee.scanned_at && (
-                    <span className="text-[10px] text-gray-400 tabular-nums flex items-center gap-0.5">
+                    <span className="text-[10px] text-white/40 tabular-nums flex items-center gap-0.5">
                       <Clock className="w-2.5 h-2.5" />
                       {formatTime(attendee.scanned_at)}
                     </span>
                   )}
-                  <span className="text-[10px] text-emerald-700 font-bold px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200">
+                  <span className="text-[10px] text-emerald-300 font-bold px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30">
                     Dentro
                   </span>
                   <button
@@ -557,7 +559,7 @@ export function ListTab() {
                       e.stopPropagation()
                       undoScan(attendee.id)
                     }}
-                    className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-all"
+                    className="w-6 h-6 flex items-center justify-center rounded-full bg-white/[0.06] text-white/55 hover:bg-white/15 hover:text-white transition-all"
                     aria-label="Deshacer check-in"
                   >
                     <Undo2 className="w-3 h-3" />
@@ -569,7 +571,7 @@ export function ListTab() {
                     e.stopPropagation()
                     manualCheckIn(attendee.id, attendee.qr_code)
                   }}
-                  className="text-[10px] text-white font-bold px-2.5 py-1.5 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 shadow-[0_2px_8px_rgba(59,130,246,0.3)] active:scale-95 transition-transform flex-shrink-0"
+                  className="text-[10px] text-white font-bold px-2.5 py-1.5 rounded-full bg-gradient-to-br from-primary-light via-primary to-primary-dark shadow-[0_2px_10px_rgba(228,30,43,0.4)] active:scale-95 transition-transform flex-shrink-0"
                 >
                   Check-in
                 </button>
@@ -582,7 +584,7 @@ export function ListTab() {
         {hasMore && (
           <button
             onClick={() => setVisibleCount((c) => c + LOAD_MORE_STEP)}
-            className="w-full py-3 text-center text-xs text-gray-600 font-semibold bg-white/70 border border-gray-200 rounded-xl hover:bg-white hover:border-gray-300 transition-all shadow-soft"
+            className="w-full py-3 text-center text-xs text-white/70 font-semibold bg-white/[0.03] border border-white/10 rounded-xl hover:bg-white/[0.06] hover:border-white/15 transition-all shadow-soft"
           >
             Mostrar mas ({searchedAttendees.length - visibleCount} restantes)
           </button>
@@ -591,8 +593,8 @@ export function ListTab() {
         {/* Empty state */}
         {searchedAttendees.length === 0 && (
           <div className="text-center py-10 glass-strong rounded-2xl shadow-soft">
-            <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-gray-500 text-sm">
+            <Users className="w-8 h-8 text-white/30 mx-auto mb-2" />
+            <p className="text-white/55 text-sm">
               {searchQuery || statusFilter !== 'all' || groupFilter !== 'all'
                 ? 'No se encontraron resultados'
                 : 'No hay asistentes aun'}

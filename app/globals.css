@@ -714,57 +714,62 @@ body[data-scanner-hi-vis="true"] .btn-primary {
 }
 
 /* ─────────────────────────────────────────────────────────
-   Scanner light-theme surface utilities.
+   Scanner dark surface utilities.
 
-   El scanner (/scanner) es una isla visual clara dentro de una
-   app que por defecto es oscura — estas utilidades existen sólo
-   para esa isla y se aplican con clases explícitas en los
-   componentes de `components/scanner/*`.
+   El scanner (/scanner) vive dentro de la misma app oscura
+   que el resto de pantallas — estas utilidades existen para
+   construir un panel operativo de alta legibilidad sobre fondo
+   oscuro, con acento rojo (primary) igual que el resto de la app.
 
-   - `bg-dots` → fondo base del scanner (fondo crema con punteado
-     sutil, evoca a entradas.projectxeventos.es)
-   - `glass-strong` → panels translúcidos estilo iOS 17; blur alto
-     + borde blanco semitransparente
+   - `bg-dots` → fondo base del scanner (negro con punteado
+     sutil blanco, evoca una pantalla nocturna de evento)
+   - `glass-strong` → panels translúcidos estilo iOS 17 en modo
+     oscuro: blur alto + borde blanco semitransparente
    - `shadow-soft` / `shadow-elevated` → elevaciones coherentes
-     para cards, drawers y tooltips; prefijadas con el mismo
-     tono azul-gris que entradas usa en toda la UI clara.
+     para cards, drawers y tooltips; tono negro puro para que
+     la profundidad no destruya el contraste de la superficie
+     oscura subyacente.
    ───────────────────────────────────────────────────────── */
 
 .bg-dots {
-  background-color: #f5f6f8;
-  background-image: radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-color: #0a0a0a;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 0% 0%, rgba(228, 30, 43, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(228, 30, 43, 0.05) 0%, transparent 55%),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: auto, auto, 24px 24px;
   background-attachment: fixed;
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(229, 231, 235, 0.85);
+  background: rgba(14, 14, 14, 0.78);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .shadow-soft {
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 2px 10px rgba(15, 23, 42, 0.05);
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .shadow-elevated {
   box-shadow:
-    0 2px 6px rgba(15, 23, 42, 0.05),
-    0 12px 32px rgba(15, 23, 42, 0.10);
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* Hi-vis ajustado para el scanner claro: en vez de "suavizar
-   grises sobre oscuro", intensifica contraste sobre fondo claro. */
+/* Hi-vis ajustado para el scanner oscuro: intensifica el contraste
+   de texto tenue para que un staff a media distancia lo lea de un vistazo. */
 body[data-scanner-hi-vis="true"] .scanner-root {
-  color: #0f172a;
+  color: #ffffff;
 }
 
-body[data-scanner-hi-vis="true"] .scanner-root .text-gray-500,
-body[data-scanner-hi-vis="true"] .scanner-root .text-gray-400 {
-  color: #334155 !important;
+body[data-scanner-hi-vis="true"] .scanner-root .text-white\/60,
+body[data-scanner-hi-vis="true"] .scanner-root .text-white\/50,
+body[data-scanner-hi-vis="true"] .scanner-root .text-white-muted {
+  color: rgba(255, 255, 255, 0.85) !important;
 }
 
 body[data-scanner-hi-vis="true"] .scanner-root [data-scanner-stat] {

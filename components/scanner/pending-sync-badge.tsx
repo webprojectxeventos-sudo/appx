@@ -9,12 +9,13 @@ import type { OutboxItem } from '@/lib/scanner-outbox'
 /**
  * PendingSyncBadge — indicador de outbox offline + drawer con detalle.
  *
- * Diseño claro inspirado en entradas.projectxeventos.es:
- *   - Pill compacta en estados aireados (amber/red/blue) que se asoma a la
+ * Diseño oscuro alineado con el resto de la app:
+ *   - Pill compacta en estados translúcidos (amber/red/sky) que aparece a la
  *     derecha del StatsBar solo si hay algo que mostrar
- *   - Drawer en glass-strong con backdrop oscuro (modal, separación visual)
+ *   - Drawer en glass-strong dark con backdrop oscuro (modal, separación visual)
  *   - Filas de pendientes con icono circular + meta-text de intentos/estado
- *   - Botón sync primario con gradient blue→indigo, limpiar errores en red-50
+ *   - Botón sync primario con gradient primary (rojo), limpiar errores en
+ *     red-500/15
  */
 export function PendingSyncBadge() {
   const {
@@ -46,12 +47,12 @@ export function PendingSyncBadge() {
       <button
         onClick={() => setOpen(true)}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all backdrop-blur-md',
           !online
-            ? 'bg-amber-50 border-amber-200 text-amber-700'
+            ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
             : failedCount > 0
-              ? 'bg-red-50 border-red-200 text-red-700'
-              : 'bg-blue-50 border-blue-200 text-blue-700',
+              ? 'bg-red-500/15 border-red-500/35 text-red-300'
+              : 'bg-sky-500/15 border-sky-500/35 text-sky-300',
         )}
       >
         {!online ? (
@@ -65,7 +66,7 @@ export function PendingSyncBadge() {
           ? 'Offline'
           : `${pendingSyncCount} pendiente${pendingSyncCount === 1 ? '' : 's'}`}
         {failedCount > 0 && (
-          <span className="text-red-600/80">· {failedCount} con error</span>
+          <span className="text-red-300/80">· {failedCount} con error</span>
         )}
       </button>
 
@@ -102,25 +103,25 @@ function PendingSyncDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-end md:items-center md:justify-center bg-gray-900/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full md:max-w-md glass-strong shadow-elevated border-t md:border md:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col animate-drawer-up md:animate-scale-in"
+        className="w-full md:max-w-md glass-strong shadow-elevated border-t md:border md:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col animate-drawer-up md:animate-scale-in pb-[env(safe-area-inset-bottom,0px)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-gray-200/70 flex items-center justify-between">
+        <div className="p-4 border-b border-white/[0.06] flex items-center justify-between">
           <div className="flex items-center gap-2">
             {online ? (
-              <Wifi className="w-4 h-4 text-emerald-600" />
+              <Wifi className="w-4 h-4 text-emerald-400" />
             ) : (
-              <WifiOff className="w-4 h-4 text-amber-600" />
+              <WifiOff className="w-4 h-4 text-amber-400" />
             )}
-            <h3 className="text-sm font-bold text-gray-900">Pendientes de sincronizar</h3>
+            <h3 className="text-sm font-bold text-white">Pendientes de sincronizar</h3>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="p-1.5 rounded-lg text-white/55 hover:text-white hover:bg-white/5 transition-colors"
             aria-label="Cerrar"
           >
             <X className="w-4 h-4" />
@@ -134,8 +135,8 @@ function PendingSyncDrawer({
             className={cn(
               'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all',
               online && !flushing
-                ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-[0_4px_16px_rgba(59,130,246,0.3)] hover:brightness-110 active:scale-[0.98]'
-                : 'bg-gray-100 text-gray-500 opacity-70',
+                ? 'bg-gradient-to-br from-primary-light via-primary to-primary-dark text-white shadow-[0_4px_16px_rgba(228,30,43,0.35)] hover:brightness-110 active:scale-[0.98]'
+                : 'bg-white/[0.05] text-white/45 border border-white/[0.08] opacity-80',
             )}
           >
             <RefreshCw className={cn('w-3.5 h-3.5', flushing && 'animate-spin')} />
@@ -148,7 +149,7 @@ function PendingSyncDrawer({
           {failedCount > 0 && (
             <button
               onClick={onClearFailed}
-              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all"
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/20 transition-all"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Limpiar errores
@@ -158,7 +159,7 @@ function PendingSyncDrawer({
 
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5">
           {items.length === 0 ? (
-            <p className="text-center text-xs text-gray-400 py-8">
+            <p className="text-center text-xs text-white/40 py-8">
               No hay acciones pendientes
             </p>
           ) : (
@@ -177,40 +178,40 @@ function PendingRow({ item }: { item: OutboxItem }) {
   return (
     <div
       className={cn(
-        'rounded-xl border p-3 flex items-center gap-2.5 shadow-soft',
+        'rounded-xl border p-3 flex items-center gap-2.5 shadow-soft backdrop-blur-md',
         isFailed
-          ? 'border-red-200 bg-red-50/80'
-          : 'border-amber-200 bg-amber-50/80',
+          ? 'border-red-500/30 bg-red-500/10'
+          : 'border-amber-500/30 bg-amber-500/10',
       )}
     >
       <div
         className={cn(
           'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border',
           isFailed
-            ? 'bg-red-100 border-red-200'
-            : 'bg-amber-100 border-amber-200',
+            ? 'bg-red-500/15 border-red-500/30'
+            : 'bg-amber-500/15 border-amber-500/30',
         )}
       >
         {isFailed ? (
-          <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
         ) : (
-          <CloudUpload className="w-3.5 h-3.5 text-amber-600" />
+          <CloudUpload className="w-3.5 h-3.5 text-amber-400" />
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-gray-900 truncate">
+        <p className="text-xs font-semibold text-white truncate">
           {kindLabel(item.kind)} · {label}
         </p>
         <p
           className={cn(
             'text-[10px] truncate',
-            isFailed ? 'text-red-700/80' : 'text-gray-500',
+            isFailed ? 'text-red-300/85' : 'text-white/55',
           )}
         >
           {subtitle}
         </p>
       </div>
-      <span className="text-[10px] text-gray-400 tabular-nums">
+      <span className="text-[10px] text-white/40 tabular-nums">
         {new Date(item.createdAt).toLocaleTimeString('es-ES', {
           hour: '2-digit',
           minute: '2-digit',
