@@ -81,6 +81,16 @@ export default function CommsPage() {
   // hitting "Descargar" to get a person-scoped TXT.
   const [userIdFilter, setUserIdFilter] = useState<string | null>(null)
   const [userIdFilterName, setUserIdFilterName] = useState<string | null>(null)
+  // Focus to a single chat (one group's private chat, or one venue's general
+  // chat). 'all' = both private of active events + general of their venues
+  // (historical behaviour). Without this, admins moderating "group A" saw
+  // messages from other groups in the same venue plus all venue-wide general
+  // chat mixed in, which matched the "mensajes de otros grupos" complaint.
+  type ChatFocus =
+    | { kind: 'all' }
+    | { kind: 'private'; eventId: string }
+    | { kind: 'general'; venueId: string }
+  const [chatFocus, setChatFocus] = useState<ChatFocus>({ kind: 'all' })
 
   const userCacheRef = useRef<Record<string, { name: string; avatar: string | null; email: string | null }>>({})
   // Cache of added_by keyed by `${user_id}:${event_id}` (since users can be added
@@ -97,6 +107,10 @@ export default function CommsPage() {
 
   // Version counter to prevent stale fetch responses from overwriting fresh data
   const fetchEventsVersion = useRef(0)
+  // Same pattern but for the moderation-messages query — swapping venue/day
+  // fires a new fetch while the old one is still in flight, and without this
+  // guard the older response can clobber current state.
+  const fetchModVersion = useRef(0)
 
   // Fetch events — scoped by role
   const { events: userEvents } = useAuth()
@@ -166,6 +180,9 @@ export default function CommsPage() {
   // Reset selections on date change
   useEffect(() => { setSelectedVenueId(null); setSelectedEventIds([]); setSelectAll(false) }, [selectedDate])
   useEffect(() => { setSelectedEventIds([]); setSelectAll(false) }, [selectedVenueId])
+  // Reset the chat-focus pill when the underlying scope changes — a saved
+  // focus for an event/venue that's no longer in view is just confusing.
+  useEffect(() => { setChatFocus({ kind: 'all' }) }, [selectedDate, selectedVenueId])
 
   // Resolve user metadata (name, avatar, email, added_by). Returns rows
   // without the context fields — those get layered on by fetchModMessages,
@@ -299,25 +316,54 @@ export default function CommsPage() {
     if (activeTab !== 'moderation' || activeEventIdsKey === '') {
       setModMessages([]); setModTotal(0); return
     }
+    // Race guard — bump version before the await chain so a stale response
+    // from a prior filter change can't clobber the current list. Without
+    // this, switching venue/day quickly could leave messages of the previous
+    // venue on screen because the older fetch resolved last.
+    const version = ++fetchModVersion.current
     if (offset === 0) setModLoading(true)
     else setModLoadingMore(true)
     try {
       const eventIds = activeEventIdsKey.split(',')
       const venueIds = activeVenueIdsKey ? activeVenueIdsKey.split(',') : []
 
-      // Build PostgREST OR clause: private event messages OR venue-wide general
-      // messages. `and(...)` nests an AND inside the top-level OR.
-      const orParts: string[] = [`event_id.in.(${eventIds.join(',')})`]
-      if (venueIds.length) {
-        orParts.push(`and(is_general.eq.true,venue_id.in.(${venueIds.join(',')}))`)
-      }
-
       let query = supabase
         .from('messages')
         .select('*', { count: 'exact' })
         .is('deleted_at', null)
-        .or(orParts.join(','))
-        .order('created_at', { ascending: false })
+
+      // Chat scope. Default ('all') covers private chats of active events
+      // PLUS venue-wide general chat. When the admin focuses on a single
+      // chat via the pill row, narrow strictly to that one — previously
+      // there was no way to see "just this group, please" and the mix of
+      // private + general was the root of "mensajes de otros grupos".
+      if (chatFocus.kind === 'private') {
+        query = query.eq('event_id', chatFocus.eventId).eq('is_general', false)
+      } else if (chatFocus.kind === 'general') {
+        query = query.eq('venue_id', chatFocus.venueId).eq('is_general', true)
+      } else {
+        const orParts: string[] = [`event_id.in.(${eventIds.join(',')})`]
+        if (venueIds.length) {
+          orParts.push(`and(is_general.eq.true,venue_id.in.(${venueIds.join(',')}))`)
+        }
+        query = query.or(orParts.join(','))
+      }
+
+      // Day bound — bound created_at to [localMidnight, nextLocalMidnight).
+      // Private chats were already indirectly scoped via event_id (events
+      // belong to one day), but general chat has no event_id, so without
+      // this bound the query returned every general message ever sent at
+      // the venue. That was the root of "mensajes de días distintos".
+      if (selectedDate) {
+        const dayStart = new Date(`${selectedDate}T00:00:00`)
+        const dayEnd = new Date(dayStart)
+        dayEnd.setDate(dayEnd.getDate() + 1)
+        query = query
+          .gte('created_at', dayStart.toISOString())
+          .lt('created_at', dayEnd.toISOString())
+      }
+
+      query = query.order('created_at', { ascending: false })
 
       if (modSearch.trim()) query = query.ilike('content', `%${modSearch.trim()}%`)
       if (userIdFilter) query = query.eq('user_id', userIdFilter)
@@ -325,8 +371,11 @@ export default function CommsPage() {
 
       const { data, count, error } = await query
       if (error) throw error
+      if (version !== fetchModVersion.current) return  // stale — abandon
 
       const rawEnriched = await resolveUserNames(data || [])
+      if (version !== fetchModVersion.current) return  // stale — abandon
+
       // Layer contextLabel/contextType on top. Done here (not in resolveUserNames)
       // so we can keep that function pure + cache-friendly across tabs.
       const enriched: MessageWithUser[] = rawEnriched.map(m => ({
@@ -341,10 +390,12 @@ export default function CommsPage() {
     } catch (err) {
       console.error('Error:', err)
     } finally {
-      setModLoading(false)
-      setModLoadingMore(false)
+      if (version === fetchModVersion.current) {
+        setModLoading(false)
+        setModLoadingMore(false)
+      }
     }
-  }, [activeTab, activeEventIdsKey, activeVenueIdsKey, modSearch, userIdFilter, resolveUserNames, eventLabelMap, venueLabelMap])
+  }, [activeTab, activeEventIdsKey, activeVenueIdsKey, modSearch, userIdFilter, chatFocus, selectedDate, resolveUserNames, eventLabelMap, venueLabelMap])
 
   // First fetch + refetch on filter change (always from offset 0)
   useEffect(() => { fetchModMessages(0) }, [fetchModMessages])
@@ -1270,6 +1321,64 @@ export default function CommsPage() {
                 )
               })}
             </div>
+          </div>
+
+          {/* Chat focus — narrow the list to a SINGLE chat. Without this the
+              admin sees private chats of every group in the day plus the
+              venue-wide general chat all mixed together, which feels like
+              "messages from other groups are leaking". 'Todos' keeps the
+              historical wide view for broad sweeps. */}
+          <div className="card p-2 flex gap-1.5 flex-wrap">
+            <button
+              onClick={() => setChatFocus({ kind: 'all' })}
+              className={cn(
+                'text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5',
+                chatFocus.kind === 'all'
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-white/5 text-white-muted hover:bg-white/10',
+              )}
+              title="Mostrar mensajes de todos los chats del dia"
+            >
+              Todos
+            </button>
+            {activeEvents.map(ev => {
+              const active = chatFocus.kind === 'private' && chatFocus.eventId === ev.id
+              return (
+                <button
+                  key={`priv:${ev.id}`}
+                  onClick={() => setChatFocus({ kind: 'private', eventId: ev.id })}
+                  className={cn(
+                    'text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 max-w-full',
+                    active
+                      ? 'bg-primary/15 text-primary'
+                      : 'bg-white/5 text-white-muted hover:bg-white/10',
+                  )}
+                  title={`Solo chat privado de ${ev.group_name || ev.title}`}
+                >
+                  <Lock className="w-3 h-3 shrink-0" />
+                  <span className="truncate max-w-[140px]">{ev.group_name || ev.title}</span>
+                </button>
+              )
+            })}
+            {[...new Set(activeEvents.map(e => e.venue_id).filter((v): v is string => !!v))].map(vid => {
+              const active = chatFocus.kind === 'general' && chatFocus.venueId === vid
+              return (
+                <button
+                  key={`gen:${vid}`}
+                  onClick={() => setChatFocus({ kind: 'general', venueId: vid })}
+                  className={cn(
+                    'text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 max-w-full',
+                    active
+                      ? 'bg-emerald-500/15 text-emerald-400'
+                      : 'bg-white/5 text-white-muted hover:bg-white/10',
+                  )}
+                  title={`Solo chat general de ${venueLabelMap[vid] || 'el venue'}`}
+                >
+                  <Globe className="w-3 h-3 shrink-0" />
+                  <span className="truncate max-w-[140px]">General · {venueLabelMap[vid] || 'Venue'}</span>
+                </button>
+              )
+            })}
           </div>
 
           <SearchInput value={modSearch} onChange={setModSearch} placeholder="Buscar en mensajes..." />
