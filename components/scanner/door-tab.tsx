@@ -193,7 +193,7 @@ export function DoorTab() {
         {/* Promoter code (optional) */}
         <div>
           <label className="text-[11px] text-white/55 font-semibold mb-1 block uppercase tracking-wider">
-            Codigo organizador (opcional)
+            Código organizador (opcional)
           </label>
           <input
             type="text"
@@ -224,11 +224,18 @@ export function DoorTab() {
               {selectedDayEvents.map((ev) => {
                 const selected = doorEventId === ev.id
                 const name = ev.group_name || ev.title
-                const time = new Date(ev.date).toLocaleTimeString('es-ES', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                })
+                // Same rule as EventPicker: midnight almost always means
+                // "no time set" upstream; don't litter every chip with
+                // "00:00" when it carries no real information.
+                const d = new Date(ev.date)
+                const time =
+                  d.getHours() === 0 && d.getMinutes() === 0
+                    ? ''
+                    : d.toLocaleTimeString('es-ES', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      })
                 return (
                   <button
                     key={ev.id}
@@ -242,14 +249,16 @@ export function DoorTab() {
                     )}
                   >
                     <span className="truncate max-w-[160px]">{name}</span>
-                    <span
-                      className={cn(
-                        'text-[10px] tabular-nums font-normal',
-                        selected ? 'text-primary-light/80' : 'text-white/40',
-                      )}
-                    >
-                      {time}
-                    </span>
+                    {time && (
+                      <span
+                        className={cn(
+                          'text-[10px] tabular-nums font-normal',
+                          selected ? 'text-primary-light/80' : 'text-white/40',
+                        )}
+                      >
+                        {time}
+                      </span>
+                    )}
                   </button>
                 )
               })}

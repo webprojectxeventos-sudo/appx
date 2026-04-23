@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   async headers() {
-    return [
+    const rules = [
       {
         // HTML pages: always revalidate so deploys are picked up immediately
         source: '/((?!_next/static|_next/image|favicon|logo|icon|manifest).*)',
@@ -27,14 +27,26 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      {
-        // Static assets: immutable, cached forever (Next.js hashes filenames)
+    ]
+
+    // Static assets: `immutable` is only safe in prod, where Next.js hashes
+    // filenames so a content change ⇒ URL change. In dev, chunk URLs are
+    // unhashed (e.g. /_next/static/chunks/app/(scanner)/scanner/page.js)
+    // and their content changes on every edit; marking them immutable makes
+    // the browser pin to the first version it saw across rebuilds, silently
+    // showing stale UI. In dev, skip this rule entirely so Next.js's own
+    // cache-control defaults apply — Next 16 also warns loudly if you
+    // override headers on /_next/static/* during development.
+    if (process.env.NODE_ENV === 'production') {
+      rules.push({
         source: '/_next/static/(.*)',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
         ],
-      },
-    ]
+      })
+    }
+
+    return rules
   },
 };
 

@@ -15,6 +15,7 @@ type DayPhase =
 
 function dayPhase(day: DayGroup, now = new Date()): DayPhase {
   const hourMs = 3_600_000
+  const dayMs = 24 * hourMs
   let anyLive = false
   let earliestFuture = Infinity
   let latestPast = -Infinity
@@ -27,10 +28,24 @@ function dayPhase(day: DayGroup, now = new Date()): DayPhase {
   }
   if (anyLive) return { kind: 'live' }
   if (earliestFuture !== Infinity) {
-    const hours = Math.floor(earliestFuture / hourMs)
-    const minutes = Math.floor((earliestFuture % hourMs) / 60_000)
-    const label =
-      hours >= 1 ? `En ${hours}h${minutes > 0 ? ` ${minutes}m` : ''}` : `En ${minutes}m`
+    // Pick a granularity that matches how far out the event is — "EN 347H"
+    // for something 2 weeks away is noise; a door operator only cares about
+    // hours/minutes when the door is imminent.
+    let label: string
+    if (earliestFuture < hourMs) {
+      const minutes = Math.max(1, Math.floor(earliestFuture / 60_000))
+      label = `En ${minutes}m`
+    } else if (earliestFuture < dayMs) {
+      const hours = Math.floor(earliestFuture / hourMs)
+      const minutes = Math.floor((earliestFuture % hourMs) / 60_000)
+      label = minutes > 0 ? `En ${hours}h ${minutes}m` : `En ${hours}h`
+    } else if (earliestFuture < 7 * dayMs) {
+      const days = Math.floor(earliestFuture / dayMs)
+      label = days === 1 ? 'En 1 día' : `En ${days} días`
+    } else {
+      const weeks = Math.floor(earliestFuture / (7 * dayMs))
+      label = weeks === 1 ? 'En 1 sem' : `En ${weeks} sem`
+    }
     return earliestFuture < 4 * hourMs
       ? { kind: 'soon', label }
       : { kind: 'upcoming', label }
@@ -222,13 +237,11 @@ function DayPill({
   const eventCount = day.events.length
   const earliest = day.events[0]?.date
   const pct = counts.total > 0 ? Math.round((counts.inside / counts.total) * 100) : 0
-  const time = earliest
-    ? new Date(earliest).toLocaleTimeString('es-ES', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      })
-    : ''
+  // Hide the start-time chip when it's just midnight — that almost always
+  // means "no time set" in the admin, not an actual midnight event. Showing
+  // "00:00" on every pill is visual noise that teaches operators to ignore
+  // the time slot entirely.
+  const time = formatMeaningfulTime(earliest)
 
   return (
     <button
@@ -316,18 +329,25 @@ function PhaseDot({ phase, small }: { phase: DayPhase; small?: boolean }) {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// "00:00" in our data almost always means "no time set" rather than an actual
+// midnight event, so treat midnight-on-the-dot as missing. Callers that want
+// to show *something* can fall back to an empty string.
+function formatMeaningfulTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (d.getHours() === 0 && d.getMinutes() === 0) return ''
+  return d.toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
 function formatTimeRange(earliest?: string, latest?: string): string | null {
-  if (!earliest) return null
-  const e = new Date(earliest).toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  const e = formatMeaningfulTime(earliest)
+  if (!e) return null
   if (!latest || latest === earliest) return e
-  const l = new Date(latest).toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  const l = formatMeaningfulTime(latest)
+  if (!l) return e
   return `${e} – ${l}`
 }
