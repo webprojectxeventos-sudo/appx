@@ -190,21 +190,21 @@ export default function LostFoundPage() {
             type="text"
             value={description}
             onChange={e => setDescription(e.target.value)}
-            placeholder="Describe el objeto (ej: chaqueta negra, iPhone...)"
+            placeholder="Ej: chaqueta negra, iPhone..."
             className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40 focus:bg-white/[0.06] transition-all"
           />
           <input
             type="text"
             value={locationHint}
             onChange={e => setLocationHint(e.target.value)}
-            placeholder="¿Donde crees que lo perdiste? (opcional)"
+            placeholder="Donde (opcional)"
             className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40 focus:bg-white/[0.06] transition-all"
           />
           <input
             type="text"
             value={contactInfo}
             onChange={e => setContactInfo(e.target.value)}
-            placeholder="Tu Instagram o telefono para contactar (opcional)"
+            placeholder="Instagram o telefono (opcional)"
             className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-white-muted/50 text-sm focus:outline-none focus:border-primary/40 focus:bg-white/[0.06] transition-all"
           />
           <button
@@ -229,7 +229,10 @@ export default function LostFoundPage() {
         </div>
       )}
 
-      {/* Filter pills */}
+      {/* Filter pills — hidden while the add-form is open to keep the user
+          focused on reporting and avoid the filter chips competing with the
+          form CTAs. */}
+      {!showAdd && (
       <div className="flex gap-2">
         {(['all', 'lost', 'found'] as const).map(f => (
           <button
@@ -248,9 +251,10 @@ export default function LostFoundPage() {
           </button>
         ))}
       </div>
+      )}
 
       {/* Items list */}
-      {filtered.length === 0 ? (
+      {!showAdd && (filtered.length === 0 ? (
         <div className="card-glow p-8 text-center animate-scale-in">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/15 to-orange-500/5 border border-orange-500/15 flex items-center justify-center mx-auto mb-4">
             <PackageSearch className="w-8 h-8 text-orange-400/60" />
@@ -348,7 +352,7 @@ export default function LostFoundPage() {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   )
 }

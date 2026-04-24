@@ -257,14 +257,15 @@ export default function ProfilePage() {
     avatarUrl !== (profile?.avatar_url || '')
 
   return (
-    <div className="animate-fade-in space-y-6">
-      {/* Back */}
-      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-white-muted hover:text-white transition-colors">
-        <ChevronLeft className="w-4 h-4" />
-        Volver
-      </Link>
-
-      <h1 className="text-2xl font-bold text-gradient-primary">Mi perfil</h1>
+    <div className="animate-fade-in space-y-5">
+      {/* Back + Title */}
+      <div className="space-y-2">
+        <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-white-muted hover:text-white transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+          Volver
+        </Link>
+        <h1 className="text-2xl font-bold text-gradient-primary">Mi perfil</h1>
+      </div>
 
       {/* Avatar */}
       <div className="flex flex-col items-center gap-3">

@@ -58,9 +58,14 @@ export const CountdownTimer = memo(function CountdownTimer({
 
   if (passed) {
     return (
-      <div className="card-glow p-5 text-center animate-glow-pulse">
-        <Sparkles className="w-6 h-6 mx-auto mb-2 text-gold" />
-        <p className="font-bold text-white text-lg">La fiesta ya ha empezado!</p>
+      <div className="card-glow px-4 py-3 flex items-center gap-3 animate-glow-pulse">
+        <div className="w-9 h-9 rounded-xl bg-gold/15 border border-gold/25 flex items-center justify-center flex-shrink-0">
+          <Sparkles className="w-4 h-4 text-gold" />
+        </div>
+        <div className="min-w-0">
+          <p className="font-bold text-white text-sm leading-tight">¡La fiesta ya ha empezado!</p>
+          <p className="text-[11px] text-white-muted leading-tight mt-0.5">Que la disfrutes</p>
+        </div>
       </div>
     )
   }

@@ -697,7 +697,7 @@ export default function ChatPage() {
             className={cn(
               'flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium transition-colors',
               activeTab === 'general'
-                ? 'text-white border-b-2 border-purple-500'
+                ? 'text-white border-b-2 border-primary'
                 : 'text-gray-500 hover:text-gray-400'
             )}
           >

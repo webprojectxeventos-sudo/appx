@@ -317,7 +317,11 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   if (isFullScreen) {
     return (
       <>
-        <main className="flex-1 pb-16 flex flex-col overflow-hidden">
+        {/* Full-screen pages (e.g. /chat) must stay pinned to the viewport —
+           using flex-1 inside min-h-screen lets content push the page longer
+           than the viewport, which breaks the internal scroll and leaves the
+           bottom nav sitting in the middle of the timeline. */}
+        <main className="fixed inset-0 pb-16 flex flex-col overflow-hidden">
           {children}
         </main>
         <BottomNav />

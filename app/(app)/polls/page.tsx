@@ -224,13 +224,15 @@ export default function DrinksPage() {
   // Success state
   if (submitted) {
     return (
-      <div className="animate-fade-in space-y-6">
-        <div className="card-accent p-6 text-center">
-          <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+      <div className="animate-fade-in space-y-5">
+        <div className="card-accent px-4 py-3 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           </div>
-          <h2 className="text-xl font-bold text-white mb-1">Pedido registrado</h2>
-          <p className="text-white-muted text-sm">Ya hemos apuntado lo que vas a beber</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[15px] font-bold text-white leading-tight">Pedido registrado</h2>
+            <p className="text-white-muted text-[11px] leading-tight mt-0.5">Ya hemos apuntado lo que vas a beber</p>
+          </div>
         </div>
 
         <div className="card divide-y divide-white/5">
