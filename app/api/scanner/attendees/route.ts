@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getStaffProfile, getStaffEventIds } from '@/lib/scanner-access'
 
+type TicketRow = {
+  id: string
+  user_id: string
+  event_id: string
+  qr_code: string
+  status: string
+  scanned_at: string | null
+  created_at: string
+}
+
 // Scanner bootstrap endpoint.
 //
 // Returns the events a caller can scan plus the ticket rows for those
@@ -68,16 +78,31 @@ export async function GET(request: NextRequest) {
   // ticket rows per bootstrap. 5000 fits comfortably in memory, covers a
   // realistic venue's several-thousand-person night, and shields the DB
   // pool from a single mobile scanner page-load.
+  //
+  // Paginated in 1000-row pages because PostgREST enforces a hard db-max-rows
+  // cap server-side (1000 by default). A naive `.limit(5000)` truncates
+  // silently after the first page — and because the query is ordered by
+  // `created_at DESC`, the truncation disproportionately drops the OLDEST
+  // tickets, which for graduation-night parties are the ones for tonight's
+  // event (bought weeks ago) while rehearsal/soft-open tickets (bought
+  // yesterday) survive. Result: scanner at the door sees a fraction of
+  // tonight's attendees. Pagination via `.range()` fixes it.
   const TICKET_HARD_CAP = 5000
-  const { data: tickets, error } = await sb
-    .from('tickets')
-    .select('id, user_id, event_id, qr_code, status, scanned_at, created_at')
-    .in('event_id', eventIds)
-    .order('created_at', { ascending: false })
-    .limit(TICKET_HARD_CAP)
-
-  if (error || !tickets) {
-    return NextResponse.json({ error: error?.message || 'Failed to load tickets' }, { status: 500 })
+  const PAGE_SIZE = 1000
+  const tickets: TicketRow[] = []
+  for (let offset = 0; offset < TICKET_HARD_CAP; offset += PAGE_SIZE) {
+    const { data: page, error } = await sb
+      .from('tickets')
+      .select('id, user_id, event_id, qr_code, status, scanned_at, created_at')
+      .in('event_id', eventIds)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1)
+    if (error) {
+      return NextResponse.json({ error: error.message || 'Failed to load tickets' }, { status: 500 })
+    }
+    if (!page || page.length === 0) break
+    tickets.push(...page)
+    if (page.length < PAGE_SIZE) break
   }
 
   // Fetch user profiles in chunks
