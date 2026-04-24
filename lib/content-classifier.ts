@@ -133,7 +133,7 @@ const TIER_2_SEXUAL_NAMING_PATTERNS: RegExp[] = [
 // Soft drug slang alone (coca, porro, papela) — mute, not ban
 const TIER_2_SOFT_DRUG_PATTERNS: RegExp[] = [
   // "quien lleva la coca", "coca por aquí"
-  /\b(?:quien|qn|quién)\s+(?:lleva|tiene|trae|pilla|consigue)\s+(?:la\s+)?(?:coca|maria|maría|porro|porros|honey|speed|mdma|pollo|pollos|pollito|pollitos|pirula|pirulas)\b/i,
+  /\b(?:quien|qn|quién|alguien|algn|alguno|alguna)\s+(?:lleva|tiene|trae|pilla|consigue)\s+(?:la\s+)?(?:coca|maria|maría|porro|porros|honey|speed|mdma|pollo|pollos|pollito|pollitos|pirula|pirulas)\b/i,
   /\b(?:un\s+)?gramo\b.{0,30}\bpor\s+(?:el\s+)?culo\b/i, // alusión explícita al uso
   // Slang specific / demandas
   /\bblue\s+bird\b.{0,30}\b(?:mezcla|coca|chongo|papela)/i,
