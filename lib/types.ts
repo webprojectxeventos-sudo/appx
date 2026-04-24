@@ -10,6 +10,7 @@ export type Database = {
           role: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id: string | null
           organization_id: string | null
+          venue_id: string | null
           gender: 'masculino' | 'femenino' | 'otro' | null
           full_name_locked: boolean
           profanity_strikes: number
@@ -24,6 +25,7 @@ export type Database = {
           role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id?: string | null
           organization_id?: string | null
+          venue_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
           full_name_locked?: boolean
           profanity_strikes?: number
@@ -38,6 +40,7 @@ export type Database = {
           role?: 'attendee' | 'admin' | 'scanner' | 'super_admin' | 'group_admin' | 'promoter' | 'cloakroom'
           event_id?: string | null
           organization_id?: string | null
+          venue_id?: string | null
           gender?: 'masculino' | 'femenino' | 'otro' | null
           full_name_locked?: boolean
           profanity_strikes?: number

@@ -39,6 +39,9 @@ import type { Database } from '@/lib/types'
 type UserRow = Database['public']['Tables']['users']['Row']
 type UserEvent = Database['public']['Tables']['user_events']['Row']
 type Event = Database['public']['Tables']['events']['Row']
+type Venue = Pick<Database['public']['Tables']['venues']['Row'], 'id' | 'name'>
+
+const VENUE_BOUND_ROLES = new Set(['scanner', 'cloakroom'])
 
 const PAGE_SIZE = 30
 
@@ -85,6 +88,14 @@ export default function UsersPage() {
   // All org events for filter
   const [orgEvents, setOrgEvents] = useState<Event[]>([])
 
+  // Venues for scanner/cloakroom assignment
+  const [venues, setVenues] = useState<Venue[]>([])
+
+  // Inline venue edit (for scanner/cloakroom rows)
+  const [editingVenueUser, setEditingVenueUser] = useState<string | null>(null)
+  const [editVenueId, setEditVenueId] = useState<string>('')
+  const [savingVenue, setSavingVenue] = useState(false)
+
   // Role counts
   const [roleCounts, setRoleCounts] = useState<Record<string, number>>({})
 
@@ -114,6 +125,7 @@ export default function UsersPage() {
   const [createPassword, setCreatePassword] = useState('')
   const [createConfirmPassword, setCreateConfirmPassword] = useState('')
   const [createGender, setCreateGender] = useState<string>('')
+  const [createVenueId, setCreateVenueId] = useState<string>('')
   const [showCreatePassword, setShowCreatePassword] = useState(false)
   const [creatingUser, setCreatingUser] = useState(false)
 
@@ -145,6 +157,20 @@ export default function UsersPage() {
       setOrgEvents(data || [])
     }
     fetchEvents()
+  }, [organization?.id])
+
+  // Fetch org venues (for scanner/cloakroom assignment)
+  useEffect(() => {
+    if (!organization?.id) return
+    const fetchVenues = async () => {
+      const { data } = await supabase
+        .from('venues')
+        .select('id, name')
+        .eq('organization_id', organization.id)
+        .order('name', { ascending: true })
+      setVenues(data || [])
+    }
+    fetchVenues()
   }, [organization?.id])
 
   // Fetch users with event filter support
@@ -336,6 +362,42 @@ export default function UsersPage() {
     }
   }
 
+  // Venue binding — for scanner/cloakroom only. Goes through update-user so
+  // the server verifies same-org and role before writing to users.venue_id
+  // (column is column-level REVOKE'd from authenticated, so direct client
+  // writes would fail anyway).
+  const startEditingVenue = (u: UserWithEvents) => {
+    setEditingVenueUser(u.id)
+    setEditVenueId(u.venue_id || '')
+  }
+
+  const cancelEditingVenue = () => {
+    setEditingVenueUser(null)
+    setEditVenueId('')
+  }
+
+  const saveVenue = async (userId: string) => {
+    setSavingVenue(true)
+    try {
+      const res = await authFetch('/api/admin/update-user', {
+        userId,
+        venueId: editVenueId || null,
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Error al asignar local')
+        return
+      }
+      success('Local asignado')
+      cancelEditingVenue()
+      await fetchUsers()
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error de conexion')
+    } finally {
+      setSavingVenue(false)
+    }
+  }
+
   // Bulk role change
   const handleBulkChangeRole = async () => {
     if (!bulkRole || selectedUsers.size === 0) return
@@ -475,6 +537,7 @@ export default function UsersPage() {
     setCreatePassword('')
     setCreateConfirmPassword('')
     setCreateGender('')
+    setCreateVenueId('')
     setShowCreatePassword(false)
   }
 
@@ -491,6 +554,12 @@ export default function UsersPage() {
       showError('Las contrasenas no coinciden')
       return
     }
+    // Scanner/cloakroom MUST be bound to a venue so access resolution
+    // works without needing per-event user_events rows.
+    if (VENUE_BOUND_ROLES.has(createRole) && !createVenueId) {
+      showError('Selecciona un local para el scanner/ropero')
+      return
+    }
     setCreatingUser(true)
     try {
       const res = await authFetch('/api/admin/create-user', {
@@ -499,6 +568,7 @@ export default function UsersPage() {
         fullName: createName,
         role: createRole,
         gender: createGender || null,
+        venueId: VENUE_BOUND_ROLES.has(createRole) ? createVenueId : null,
       })
       const data = await res.json()
       if (!res.ok) {
@@ -595,6 +665,13 @@ export default function UsersPage() {
     orgEvents.forEach(e => { map[e.id] = e.group_name || e.title })
     return map
   }, [orgEvents])
+
+  // Venue names map
+  const venueNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    venues.forEach(v => { map[v.id] = v.name })
+    return map
+  }, [venues])
 
   if (!initialized) {
     return (
@@ -975,6 +1052,55 @@ export default function UsersPage() {
                       </div>
                     </div>
 
+                    {/* Venue binding (scanner / cloakroom only) */}
+                    {VENUE_BOUND_ROLES.has(u.role) && (
+                      <div className="space-y-2">
+                        <span className="text-[11px] text-white-muted uppercase tracking-wider">
+                          Local asignado
+                        </span>
+                        {editingVenueUser === u.id ? (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={editVenueId}
+                              onChange={e => setEditVenueId(e.target.value)}
+                              className="flex-1 px-3 py-2 rounded-lg border border-primary/30 bg-transparent text-white text-xs focus:outline-none focus:border-primary/50"
+                            >
+                              <option value="" className="bg-[#1a1a1a]">Sin local</option>
+                              {venues.map(v => (
+                                <option key={v.id} value={v.id} className="bg-[#1a1a1a]">{v.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => saveVenue(u.id)}
+                              disabled={savingVenue}
+                              className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                            >
+                              {savingVenue ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              onClick={cancelEditingVenue}
+                              className="p-2 rounded-lg text-white-muted hover:bg-white/5 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+                            <span className="text-xs text-white">
+                              {u.venue_id ? (venueNameMap[u.venue_id] || 'Local desconocido') : <span className="text-white-muted italic">Sin local</span>}
+                            </span>
+                            <button
+                              onClick={() => startEditingVenue(u)}
+                              className="flex items-center gap-1.5 text-[11px] text-white-muted hover:text-primary transition-colors py-1 px-2 rounded-lg hover:bg-primary/5"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              Cambiar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Events */}
                     {u.userEvents !== undefined && (
                       <div className="space-y-2">
@@ -1249,6 +1375,25 @@ export default function UsersPage() {
                   </div>
                 </div>
 
+                {VENUE_BOUND_ROLES.has(createRole) && (
+                  <div>
+                    <label className="block text-xs text-white-muted mb-1.5">Local asignado *</label>
+                    <select
+                      value={createVenueId}
+                      onChange={e => setCreateVenueId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-black-border bg-transparent text-white text-sm focus:outline-none focus:border-primary/40"
+                    >
+                      <option value="" className="bg-[#1a1a1a]">Selecciona un local…</option>
+                      {venues.map(v => (
+                        <option key={v.id} value={v.id} className="bg-[#1a1a1a]">{v.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-white-muted mt-1">
+                      El scanner vera TODOS los eventos de este local, sin depender de asignaciones por evento.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs text-white-muted mb-1.5">Genero</label>
                   <div className="flex gap-2">
@@ -1314,7 +1459,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-3 p-4 border-t border-black-border">
                 <button
                   onClick={handleCreateUser}
-                  disabled={creatingUser || !createEmail || !createPassword || !createRole || createPassword !== createConfirmPassword || createPassword.length < 6}
+                  disabled={creatingUser || !createEmail || !createPassword || !createRole || createPassword !== createConfirmPassword || createPassword.length < 6 || (VENUE_BOUND_ROLES.has(createRole) && !createVenueId)}
                   className="btn-primary flex-1 text-sm py-2.5 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {creatingUser && <Loader2 className="w-4 h-4 animate-spin" />}

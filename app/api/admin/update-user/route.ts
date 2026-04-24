@@ -34,11 +34,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { userId, email, fullName, gender } = body as {
+    const { userId, email, fullName, gender, venueId } = body as {
       userId?: string
       email?: string
       fullName?: string
       gender?: string | null
+      venueId?: string | null
     }
 
     if (!userId) {
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     // Verify target user belongs to same org
     const { data: targetUser } = await supabaseAdmin
       .from('users')
-      .select('id, email, organization_id')
+      .select('id, email, role, organization_id')
       .eq('id', userId)
       .single()
 
@@ -66,6 +67,28 @@ export async function POST(request: NextRequest) {
     const profileUpdate: Record<string, unknown> = {}
     if (fullName !== undefined) profileUpdate.full_name = fullName
     if (gender !== undefined) profileUpdate.gender = gender
+
+    // venue_id editing — only applies to scanner / cloakroom. `null` clears
+    // the binding. A non-null id is verified against the caller's org so a
+    // compromised admin can't plant a scanner into another org's venue.
+    if (venueId !== undefined) {
+      if (targetUser.role !== 'scanner' && targetUser.role !== 'cloakroom') {
+        return NextResponse.json({ error: 'venue_id solo aplica a roles scanner/cloakroom' }, { status: 400 })
+      }
+      if (venueId === null || venueId === '') {
+        profileUpdate.venue_id = null
+      } else {
+        const { data: venue } = await supabaseAdmin
+          .from('venues')
+          .select('id, organization_id')
+          .eq('id', venueId)
+          .single()
+        if (!venue || venue.organization_id !== callerProfile.organization_id) {
+          return NextResponse.json({ error: 'Venue no encontrado o de otra organizacion' }, { status: 400 })
+        }
+        profileUpdate.venue_id = venueId
+      }
+    }
 
     // If email is changing, update both auth and profile
     if (email && email.toLowerCase().trim() !== targetUser.email) {

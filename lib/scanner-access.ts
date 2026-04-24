@@ -2,9 +2,12 @@
 // staff (scan tickets, undo scans, register door entries, etc.).
 //
 // Access model:
-//   - `scanner` and `cloakroom` access is **venue-based**: assign a scanner
-//     to ANY event at a venue and they automatically see ALL events at that
-//     venue within the operational window (see STAFF_EVENT_WINDOW below).
+//   - `scanner` and `cloakroom` access is **venue-based**: the scanner
+//     user is permanently bound to a venue via `users.venue_id`. They
+//     automatically see ALL events at that venue within the operational
+//     window (see STAFF_EVENT_WINDOW below), regardless of which specific
+//     events exist on any given day. Legacy fallback: if `venue_id` is
+//     null, venue is derived from their `user_events` rows (the old model).
 //   - `group_admin` and `promoter` access is explicit per-event via
 //     `user_events`.
 //   - `admin` and `super_admin` access is IMPLICIT via their profile role
@@ -43,33 +46,64 @@ const VENUE_WIDE_ROLES: readonly string[] = ['scanner', 'cloakroom']
 export type StaffProfile = {
   role: string
   organization_id: string | null
+  venue_id: string | null
 }
 
 /**
- * Resolve the caller's profile (role + org). Returns null if the user
- * doesn't exist in the users table or isn't a staff role.
+ * Resolve the caller's profile (role + org + assigned venue). Returns null
+ * if the user doesn't exist in the users table or isn't a staff role.
+ *
+ * Tolerant of pre-migration deploys: if `venue_id` doesn't exist yet
+ * (error code 42703 "undefined_column" on PostgREST), retries with the
+ * legacy shape so the scanner keeps working until the admin runs
+ * `supabase/migrations/20260424_users_venue_id.sql`.
  */
 export async function getStaffProfile(
   admin: SupabaseClient,
   userId: string,
 ): Promise<StaffProfile | null> {
-  const { data, error } = await admin
+  let row: { role: string; organization_id: string | null; venue_id?: string | null } | null = null
+
+  const withVenue = await admin
     .from('users')
-    .select('role, organization_id')
+    .select('role, organization_id, venue_id')
     .eq('id', userId)
     .single()
 
-  if (error || !data) return null
-  if (!STAFF_ROLES.includes(data.role as typeof STAFF_ROLES[number])) return null
-  return { role: data.role, organization_id: data.organization_id }
+  if (withVenue.error) {
+    if (withVenue.error.code === '42703') {
+      const legacy = await admin
+        .from('users')
+        .select('role, organization_id')
+        .eq('id', userId)
+        .single()
+      if (legacy.error || !legacy.data) return null
+      row = legacy.data
+    } else {
+      return null
+    }
+  } else {
+    row = withVenue.data
+  }
+
+  if (!row) return null
+  if (!STAFF_ROLES.includes(row.role as typeof STAFF_ROLES[number])) return null
+  return {
+    role: row.role,
+    organization_id: row.organization_id,
+    venue_id: row.venue_id ?? null,
+  }
 }
 
 /**
  * Return the set of event IDs the caller can staff:
- *   - scanner / cloakroom → venue-wide: get their assigned events,
- *     resolve venues, return ALL events at those venues (no date filter)
- *   - group_admin / promoter → only their explicit user_events
- *   - admin / super_admin → every event in their org (no date filter)
+ *   - scanner / cloakroom → venue-wide. Primary source: `users.venue_id`.
+ *     Legacy fallback: derive venue from `user_events` rows. Either way,
+ *     returns all events at the resolved venue(s) within the operational
+ *     window.
+ *   - group_admin / promoter → only their explicit `user_events`.
+ *   - admin / super_admin → every event in their org within the operational
+ *     window.
  */
 export async function getStaffEventIds(
   admin: SupabaseClient,
@@ -78,7 +112,9 @@ export async function getStaffEventIds(
 ): Promise<Set<string>> {
   const eventIds = new Set<string>()
 
-  // user_events memberships
+  // user_events memberships — still honored for group_admin/promoter, and
+  // as a layering mechanism for scanners (e.g. lend a scanner to a one-off
+  // event at a different venue without changing their venue_id).
   const { data: memberships } = await admin
     .from('user_events')
     .select('event_id, role')
@@ -95,27 +131,39 @@ export async function getStaffEventIds(
 
   const { fromIso, toIso } = eventWindow()
 
-  // Venue-wide expansion for scanner / cloakroom:
-  // Bootstrap pulls events at the same venue(s) within the operational window.
-  if (VENUE_WIDE_ROLES.includes(profile.role) && eventIds.size > 0) {
-    // Get venue_ids from assigned events
-    const { data: assignedEvents } = await admin
-      .from('events')
-      .select('venue_id')
-      .in('id', [...eventIds])
+  // Venue-wide expansion for scanner / cloakroom.
+  //
+  // Preferred source: `users.venue_id` — set once per scanner in the admin
+  // UI. The scanner is then permanently bound to that venue, so they see
+  // every event at it regardless of which `user_events` rows exist. This
+  // is the whole point of venue-scoped scanners: if an admin deletes an
+  // event or forgets to assign a new one, the scanner at the door must
+  // still work.
+  //
+  // Legacy fallback: if no `venue_id` on the profile, derive venue(s) from
+  // the `user_events` rows we already loaded above — preserves behavior
+  // for scanner accounts that haven't been migrated yet.
+  if (VENUE_WIDE_ROLES.includes(profile.role)) {
+    const venueIds = new Set<string>()
 
-    const venueIds = [...new Set(
-      (assignedEvents || [])
-        .map(e => e.venue_id)
-        .filter((v): v is string => !!v)
-    )]
+    if (profile.venue_id) {
+      venueIds.add(profile.venue_id)
+    } else if (eventIds.size > 0) {
+      const { data: assignedEvents } = await admin
+        .from('events')
+        .select('venue_id')
+        .in('id', [...eventIds])
 
-    if (venueIds.length > 0) {
-      // Events at those venues within the operational window
+      for (const e of (assignedEvents || [])) {
+        if (e.venue_id) venueIds.add(e.venue_id)
+      }
+    }
+
+    if (venueIds.size > 0) {
       const { data: venueEvents } = await admin
         .from('events')
         .select('id')
-        .in('venue_id', venueIds)
+        .in('venue_id', [...venueIds])
         .gte('date', fromIso)
         .lte('date', toIso)
 

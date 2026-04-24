@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCallerId } from '@/lib/api-auth'
 
-const VALID_ROLES = ['attendee', 'admin', 'group_admin', 'scanner', 'promoter', 'super_admin']
+const VALID_ROLES = ['attendee', 'admin', 'group_admin', 'scanner', 'promoter', 'super_admin', 'cloakroom']
+const VENUE_BOUND_ROLES = new Set(['scanner', 'cloakroom'])
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,12 +38,13 @@ export async function POST(request: NextRequest) {
 
     // Parse body
     const body = await request.json()
-    const { email, password, fullName, role, gender } = body as {
+    const { email, password, fullName, role, gender, venueId } = body as {
       email?: string
       password?: string
       fullName?: string
       role?: string
       gender?: string
+      venueId?: string | null
     }
 
     if (!email || !password || !role) {
@@ -56,6 +58,10 @@ export async function POST(request: NextRequest) {
     if (!VALID_ROLES.includes(role)) {
       return NextResponse.json({ error: `Rol invalido. Roles validos: ${VALID_ROLES.join(', ')}` }, { status: 400 })
     }
+
+    // venue_id is only meaningful for scanner / cloakroom. Reject stray
+    // venueId on other roles to avoid silently binding an admin to a venue.
+    const normalizedVenueId = VENUE_BOUND_ROLES.has(role) ? (venueId || null) : null
 
     // Basic email format check (loose — super admin can use invented emails)
     if (!email.includes('@') || email.length < 5) {
@@ -102,6 +108,21 @@ export async function POST(request: NextRequest) {
     // The `handle_new_user` Supabase trigger auto-creates the `public.users` row
     // when `auth.admin.createUser` runs, so we must UPDATE (not INSERT) to fill in
     // role, full_name, gender, and organization_id.
+    // If binding a scanner/cloakroom to a venue, verify the venue exists in
+    // the caller's org — never trust a client-supplied venue_id.
+    if (normalizedVenueId) {
+      const { data: venue } = await supabaseAdmin
+        .from('venues')
+        .select('id, organization_id')
+        .eq('id', normalizedVenueId)
+        .single()
+
+      if (!venue || venue.organization_id !== callerProfile.organization_id) {
+        await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id).catch(() => {})
+        return NextResponse.json({ error: 'Venue no encontrado o de otra organizacion' }, { status: 400 })
+      }
+    }
+
     const { error: profileError } = await supabaseAdmin
       .from('users')
       .update({
@@ -109,6 +130,7 @@ export async function POST(request: NextRequest) {
         gender: gender || null,
         role,
         organization_id: callerProfile.organization_id,
+        venue_id: normalizedVenueId,
       })
       .eq('id', newAuthUser.user.id)
 
