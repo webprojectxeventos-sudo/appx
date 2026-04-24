@@ -45,7 +45,7 @@ export function ScanTab() {
     patchAttendee,
     soundEnabled,
     setSoundEnabled,
-    attendeesRef,
+    attendeesByQrRef,
     eventNameMapRef,
     soundEnabledRef,
   } = useScanner()
@@ -138,7 +138,8 @@ export function ScanTab() {
 
   const processScan = useCallback(
     async (qrCode: string) => {
-      const localMatch = attendeesRef.current.find((a) => a.qr_code === qrCode)
+      // O(1) lookup — the provider keeps a QR→attendee Map in sync.
+      const localMatch = attendeesByQrRef.current.get(qrCode)
       const displayName = localMatch?.user_name || 'Procesando...'
       const displayEvent =
         (localMatch && eventNameMapRef.current[localMatch.event_id]) || ''
@@ -284,7 +285,7 @@ export function ScanTab() {
       addPending,
       finalizeRecent,
       triggerFlash,
-      attendeesRef,
+      attendeesByQrRef,
       eventNameMapRef,
       soundEnabledRef,
     ],
@@ -382,6 +383,13 @@ export function ScanTab() {
 
   // Stop scanner on unmount
   useEffect(() => () => { stopScanner() }, [stopScanner])
+
+  // Prefetch html5-qrcode so the first click → camera feed is instant.
+  // Without this, the dynamic import runs on click and the operator waits
+  // ~100-300ms before the viewfinder appears.
+  useEffect(() => {
+    void import('html5-qrcode').catch(() => { /* best-effort */ })
+  }, [])
 
   // ── Hero card: the most recent scan, shown prominently for HERO_MS ─────
 
@@ -634,32 +642,42 @@ export function ScanTab() {
 function HeroCard({ scan }: { scan: RecentScan }) {
   const style = STYLE_BY_KIND[scan.kind]
   const Icon = style.icon
+  // Big, bold, unmissable: operator on a busy door glances at phone and
+  // reads the name from across a table without squinting. The icon is
+  // oversized so peripheral vision catches the color code (green/amber/red)
+  // before the eyes focus on the text.
   return (
     <div
       className={cn(
-        'absolute left-3 right-3 bottom-3 p-3 rounded-xl border backdrop-blur-xl flex items-center gap-3 transition-all shadow-elevated',
+        'absolute left-2 right-2 bottom-2 p-4 rounded-2xl border-2 backdrop-blur-xl flex items-center gap-4 shadow-[0_10px_40px_rgba(0,0,0,0.55)]',
         style.heroBg,
         style.heroBorder,
       )}
-      style={{ animation: 'slideUp 0.18s ease-out' }}
+      style={{ animation: 'slideUp 0.14s ease-out' }}
+      data-testid="scan-hero"
     >
       <div
         className={cn(
-          'w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0',
+          'w-[72px] h-[72px] rounded-full flex items-center justify-center flex-shrink-0',
           style.heroIconBg,
         )}
       >
         {scan.kind === 'pending' ? (
-          <Loader2 className={cn('w-5 h-5 animate-spin', style.heroIconColor)} />
+          <Loader2 className={cn('w-9 h-9 animate-spin', style.heroIconColor)} />
         ) : (
-          <Icon className={cn('w-6 h-6', style.heroIconColor)} />
+          <Icon className={cn('w-10 h-10', style.heroIconColor)} strokeWidth={2.5} />
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-base font-bold text-white truncate leading-tight">
+        <p
+          className="text-2xl font-black text-white leading-[1.05] tracking-tight line-clamp-2"
+          style={{ textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}
+        >
           {scan.name}
         </p>
-        <p className="text-[11px] text-white/75 truncate">{scan.subtitle}</p>
+        <p className="text-sm text-white/85 truncate mt-1 font-medium">
+          {scan.subtitle}
+        </p>
       </div>
     </div>
   )

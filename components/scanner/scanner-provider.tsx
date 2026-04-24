@@ -64,6 +64,7 @@ interface ScannerContextValue {
 
   // Refs for scanner callback (stale-closure safe)
   attendeesRef: React.MutableRefObject<AttendeeRow[]>
+  attendeesByQrRef: React.MutableRefObject<Map<string, AttendeeRow>>
   eventNameMapRef: React.MutableRefObject<Record<string, string>>
   soundEnabledRef: React.MutableRefObject<boolean>
   loadAttendeesRef: React.MutableRefObject<() => void>
@@ -143,6 +144,10 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const eventNameMapRef = useRef<Record<string, string>>({})
   const soundEnabledRef = useRef(soundEnabled)
   const loadAttendeesRef = useRef<() => void>(() => {})
+  // O(1) QR lookup — rebuilt whenever attendees change. Avoids the O(n)
+  // `attendees.find(a => a.qr_code === qr)` on every scan: with 5000 rows,
+  // that's a full array scan on the hot path just to fetch a display name.
+  const attendeesByQrRef = useRef<Map<string, AttendeeRow>>(new Map())
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
@@ -371,6 +376,11 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     attendeesRef.current = attendees
+    const map = new Map<string, AttendeeRow>()
+    for (const a of attendees) {
+      if (a.qr_code) map.set(a.qr_code, a)
+    }
+    attendeesByQrRef.current = map
   }, [attendees])
   useEffect(() => {
     eventNameMapRef.current = eventNameMap
@@ -625,6 +635,7 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       soundEnabled,
       setSoundEnabled,
       attendeesRef,
+      attendeesByQrRef,
       eventNameMapRef,
       soundEnabledRef,
       loadAttendeesRef,
