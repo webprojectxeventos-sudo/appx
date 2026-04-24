@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import { QRCodeSVG } from 'qrcode.react'
 import { X, Maximize2, Ticket, Calendar, MapPin, Clock } from 'lucide-react'
@@ -22,16 +23,32 @@ interface Props {
 }
 
 /**
- * Sort rule: future events ordered by closest upcoming first; past events
- * appended in reverse chronological (most recent past first). Today counts
- * as "future" until end of day so attendees on the day of the event still
- * see their ticket up top.
+ * True when the event is still "current" from the attendee's point of view:
+ * either upcoming, or started within the same LOCAL calendar day (night-club
+ * parties commonly start at 22:00 and run past midnight — a raw "12h grace"
+ * over millis prematurely marks them as past by noon the next day even
+ * though the user still considers it "la fiesta de hoy"). We treat the
+ * event as current until local end-of-day on the event's calendar date
+ * plus ~8h morning-after grace (covers late pickups, lost-found, gallery).
+ */
+function isCurrentEvent(iso: string): boolean {
+  const ts = new Date(iso).getTime()
+  if (!Number.isFinite(ts)) return false
+  if (ts >= Date.now()) return true
+  const d = new Date(ts)
+  const endOfLocalDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
+  const morningAfter = endOfLocalDay + 8 * 60 * 60 * 1000
+  return Date.now() <= morningAfter
+}
+
+/**
+ * Sort rule: current events (future + same-day) ordered by closest first;
+ * past events appended in reverse chronological (most recent past first).
  */
 function sortByProximity(tickets: CarouselTicket[]): CarouselTicket[] {
-  const now = Date.now()
   const withTs = tickets.map((t) => ({ ...t, ts: new Date(t.eventDate).getTime() }))
-  const future = withTs.filter((t) => t.ts >= now - 12 * 60 * 60 * 1000) // grace of 12h so "today" counts
-  const past = withTs.filter((t) => t.ts < now - 12 * 60 * 60 * 1000)
+  const future = withTs.filter((t) => isCurrentEvent(t.eventDate))
+  const past = withTs.filter((t) => !isCurrentEvent(t.eventDate))
   future.sort((a, b) => a.ts - b.ts)
   past.sort((a, b) => b.ts - a.ts)
   return [...future, ...past]
@@ -145,52 +162,58 @@ export function QRCarousel({ tickets, userName }: Props) {
   const activeTicket = fullscreen !== null ? sorted[fullscreen] : null
   const multi = sorted.length > 1
 
+  // Portal the fullscreen modal to document.body so it escapes the layout's
+  // stacking context. Otherwise the sticky header (z-40) and fixed bottom nav
+  // (z-50) paint over it even at z-[100] because of paint-order interactions
+  // with the glass-panel backdrop-filters used in the shell.
+  const modalNode =
+    activeTicket && typeof document !== 'undefined' ? (
+      <div
+        className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-8 animate-fade-in"
+        role="dialog"
+        aria-modal="true"
+      >
+        <button
+          onClick={() => setFullscreen(null)}
+          className="absolute top-4 right-4 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center"
+          aria-label="Cerrar"
+        >
+          <X className="w-5 h-5 text-gray-700" />
+        </button>
+
+        <div className="text-center mb-8">
+          <Image
+            src="/logo.png"
+            alt="Project X"
+            width={40}
+            height={40}
+            className="rounded-xl mx-auto mb-3"
+          />
+          <h2 className="text-xl font-bold text-gray-900">{activeTicket.eventName}</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            {formatEventDate(activeTicket.eventDate)}
+          </p>
+          {userName && <p className="text-gray-400 text-xs mt-0.5">{userName}</p>}
+        </div>
+
+        <div className="p-4 bg-white rounded-2xl shadow-lg border border-gray-100">
+          <QRCodeSVG
+            value={activeTicket.qrCode}
+            size={280}
+            level="H"
+            includeMargin
+            bgColor="#ffffff"
+            fgColor="#000000"
+          />
+        </div>
+
+        <p className="text-gray-400 text-xs mt-6">Muestra este codigo en la entrada</p>
+      </div>
+    ) : null
+
   return (
     <>
-      {/* Fullscreen modal (white bg so the camera can read the QR at max brightness) */}
-      {activeTicket && (
-        <div
-          className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-8 animate-fade-in"
-          role="dialog"
-          aria-modal="true"
-        >
-          <button
-            onClick={() => setFullscreen(null)}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center"
-            aria-label="Cerrar"
-          >
-            <X className="w-5 h-5 text-gray-700" />
-          </button>
-
-          <div className="text-center mb-8">
-            <Image
-              src="/logo.png"
-              alt="Project X"
-              width={40}
-              height={40}
-              className="rounded-xl mx-auto mb-3"
-            />
-            <h2 className="text-xl font-bold text-gray-900">{activeTicket.eventName}</h2>
-            <p className="text-gray-500 text-sm mt-1">
-              {formatEventDate(activeTicket.eventDate)}
-            </p>
-            {userName && <p className="text-gray-400 text-xs mt-0.5">{userName}</p>}
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl shadow-lg border border-gray-100">
-            <QRCodeSVG
-              value={activeTicket.qrCode}
-              size={280}
-              level="H"
-              includeMargin
-              bgColor="#ffffff"
-              fgColor="#000000"
-            />
-          </div>
-
-          <p className="text-gray-400 text-xs mt-6">Muestra este codigo en la entrada</p>
-        </div>
-      )}
+      {modalNode && createPortal(modalNode, document.body)}
 
       <div className="space-y-3">
         {/* Header — only shown when there are multiple tickets */}
@@ -216,7 +239,7 @@ export function QRCarousel({ tickets, userName }: Props) {
         >
           {sorted.map((t, i) => {
             const badge = relativeLabel(t.eventDate)
-            const isFuture = new Date(t.eventDate).getTime() >= Date.now() - 12 * 60 * 60 * 1000
+            const isFuture = isCurrentEvent(t.eventDate)
             return (
               <div
                 key={t.id}
@@ -254,27 +277,27 @@ export function QRCarousel({ tickets, userName }: Props) {
                           fgColor="#000000"
                         />
                       </div>
-                      {badge && (
-                        <div
-                          className={cn(
-                            'absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap tabular-nums',
-                            isFuture
-                              ? 'bg-gold text-black shadow-[0_2px_8px_rgba(212,168,67,0.4)]'
-                              : 'bg-white/10 text-white-muted border border-white/10',
-                          )}
-                        >
-                          {badge}
-                        </div>
-                      )}
                     </div>
 
                     {/* Event info */}
                     <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <Ticket className="w-3 h-3 text-gold" />
                         <span className="text-[10px] uppercase tracking-[0.18em] text-gold font-semibold">
                           Tu entrada
                         </span>
+                        {badge && (
+                          <span
+                            className={cn(
+                              'px-1.5 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap tabular-nums',
+                              isFuture
+                                ? 'bg-gold text-black shadow-[0_2px_8px_rgba(212,168,67,0.4)]'
+                                : 'bg-white/10 text-white-muted border border-white/10',
+                            )}
+                          >
+                            {badge}
+                          </span>
+                        )}
                       </div>
                       <h3 className="text-white font-bold text-[15px] leading-tight line-clamp-2">
                         {t.eventName}

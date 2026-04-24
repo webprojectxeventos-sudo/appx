@@ -16,13 +16,20 @@ type DayPhase =
 function dayPhase(day: DayGroup, now = new Date()): DayPhase {
   const hourMs = 3_600_000
   const dayMs = 24 * hourMs
+  const todayKey = now.toDateString()
   let anyLive = false
   let earliestFuture = Infinity
   let latestPast = -Infinity
   for (const ev of day.events) {
     const t = new Date(ev.date).getTime()
     const delta = t - now.getTime()
+    // Consider the event "live" if it started within the last 6h OR if it's
+    // on today's calendar day at all. Late-start parties (22:00–06:00) would
+    // otherwise flip to "Acabó" after 6h even though the door is still active
+    // and attendees are arriving — scary for a door operator glancing at
+    // the pill. Err toward showing "En curso" for anything happening today.
     if (delta <= 0 && -delta < 6 * hourMs) anyLive = true
+    if (delta <= 0 && new Date(ev.date).toDateString() === todayKey) anyLive = true
     if (delta > 0 && delta < earliestFuture) earliestFuture = delta
     if (delta <= 0 && -delta > latestPast) latestPast = -delta
   }

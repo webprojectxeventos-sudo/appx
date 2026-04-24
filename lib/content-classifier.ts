@@ -133,11 +133,18 @@ const TIER_2_SEXUAL_NAMING_PATTERNS: RegExp[] = [
 // Soft drug slang alone (coca, porro, papela) — mute, not ban
 const TIER_2_SOFT_DRUG_PATTERNS: RegExp[] = [
   // "quien lleva la coca", "coca por aquí"
-  /\b(?:quien|qn|quién)\s+(?:lleva|tiene|trae|pilla|consigue)\s+(?:la\s+)?(?:coca|maria|maría|porro|porros|honey|speed|mdma)\b/i,
+  /\b(?:quien|qn|quién)\s+(?:lleva|tiene|trae|pilla|consigue)\s+(?:la\s+)?(?:coca|maria|maría|porro|porros|honey|speed|mdma|pollo|pollos|pollito|pollitos|pirula|pirulas)\b/i,
   /\b(?:un\s+)?gramo\b.{0,30}\bpor\s+(?:el\s+)?culo\b/i, // alusión explícita al uso
   // Slang specific / demandas
   /\bblue\s+bird\b.{0,30}\b(?:mezcla|coca|chongo|papela)/i,
   /\bhoney\s+(?:gente|aquí|aqui|encima|por)\b/i,
+  // MDMA slang pidiendo/ofreciendo — "medio pollo", "pilla un pollo", "quien trae pirulas"
+  /\b(?:medio|un|dos|tres|cuatro)\s+(?:pollo|pollos|pollito|pollitos|pirula|pirulas|cristal)\b/i,
+  /\b(?:pilla|trae|mete|mando|manda|mándame|mándame)\s+(?:un|una|medio|dos)\s+(?:pollo|pollito|pirula|cristal|maria|porro)\b/i,
+  // "quien regala/regalan M/mdma/éxtasis" — ask for free drugs
+  /\b(?:quien|qn|quién)\s+(?:regala|lleva|trae|da)\s+(?:la\s+)?(?:m|mdma|mdm|éxtasis|extasis|éxtasi|extasi|éxta|exta)\b/i,
+  /\b(?:a\s+qu[eé]\s+hora|cu[aá]ndo|cuando)\s+(?:regala|regalan|dan|reparten|pasan)\s+(?:la\s+)?(?:m|mdma|mdm|éxtasis|extasis)\b/i,
+  /\bregalan?\s+(?:la\s+)?m\b(?!\s+(?:[aá]s|i|ismo|inuto|omento|[eé]s))/i,
 ]
 
 // Hate speech soft — mute not ban
@@ -154,7 +161,8 @@ const TIER_2_SLUR_PATTERNS: RegExp[] = [
 
 const TIER_3_WORDS = [
   // Classic insults (kept from original list)
-  'puta', 'puto', 'putada', 'putas', 'putos',
+  'puta', 'puto', 'putada', 'putas', 'putos', 'putero', 'puteros',
+  'perra', 'perras', 'hijo de perra', 'hija de perra',
   'mierda', 'mierdas', 'mierdoso', 'mierdosa',
   'joder', 'jodido', 'jodida', 'jodidos', 'jodidas',
   'gilipollas', 'gilipolla', 'gilipollez',
@@ -260,12 +268,27 @@ export interface ClassificationResult {
 }
 
 /**
- * Classify text content into the highest-severity tier that matches.
- * Returns null if the text is clean.
+ * Collapse common leetspeak/evasion tricks so "puter0" → "putero",
+ * "p0rr0" → "porro", "h1j0 d3 p3rr4" → "hijo de perra". Runs BEFORE the
+ * classifier so we can test both the original and the normalized form and
+ * match whichever trips first.
  *
- * Order of checks: TIER_1 (most specific) → TIER_2 → TIER_3. First match wins.
+ * Intentionally conservative: digits → letters only (0→o, 1→i, 3→e, 4→a,
+ * 5→s, 7→t, 8→b). We don't collapse @/$/! because those produce too many
+ * false positives in legit messages (prices, exclamations, etc.).
  */
-export function classifyContent(text: string): ClassificationResult | null {
+function normalizeLeet(text: string): string {
+  return text
+    .replace(/0/g, 'o')
+    .replace(/1/g, 'i')
+    .replace(/3/g, 'e')
+    .replace(/4/g, 'a')
+    .replace(/5/g, 's')
+    .replace(/7/g, 't')
+    .replace(/8/g, 'b')
+}
+
+function classifyOne(text: string): ClassificationResult | null {
   if (!text) return null
 
   // ── TIER 1 ──────────────────────────────────────────────────────────────
@@ -319,6 +342,23 @@ export function classifyContent(text: string): ClassificationResult | null {
   }
 
   return null
+}
+
+/**
+ * Classify text content into the highest-severity tier that matches.
+ * Returns null if the text is clean.
+ *
+ * Runs the classifier twice: once against the original text, once against a
+ * leet-normalized copy. This catches trivial evasion like "puter0" (→ putero)
+ * or "h1j0 d3 p3rr4" while still preferring matches on the original string
+ * (so the stored `match` shows what the user actually typed when possible).
+ */
+export function classifyContent(text: string): ClassificationResult | null {
+  const raw = classifyOne(text)
+  if (raw) return raw
+  const normalized = normalizeLeet(text)
+  if (normalized === text) return null
+  return classifyOne(normalized)
 }
 
 /**

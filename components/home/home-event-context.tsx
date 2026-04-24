@@ -51,12 +51,22 @@ const SYNC_DEBOUNCE_MS = 600
  * Sort events by proximity to now:
  *   - Future/today events ascending by date (closest upcoming first)
  *   - Past events descending (most recent past first) after all future events
- * Gives attendees the QR they're about to use at the top, while keeping their
- * past events accessible further down the carousel.
+ *
+ * An event counts as "current" until end-of-local-day on its calendar date,
+ * plus ~8h morning-after grace. A flat 12h grace over millis prematurely
+ * buries a night-club event that started at 22:00 the night before, even
+ * though attendees still think of it as "la fiesta de hoy".
  */
 function sortByProximity(events: Event[]): Event[] {
   const now = Date.now()
-  const graceMs = 12 * 60 * 60 * 1000 // "today" counts as future for 12h
+  const isCurrent = (ts: number) => {
+    if (ts >= now) return true
+    const d = new Date(ts)
+    const endOfLocalDay = new Date(
+      d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999,
+    ).getTime()
+    return now <= endOfLocalDay + 8 * 60 * 60 * 1000
+  }
   return [...events]
     .map((e) => {
       const ts = new Date(e.date).getTime()
@@ -65,8 +75,8 @@ function sortByProximity(events: Event[]): Event[] {
       return { e, ts: Number.isFinite(ts) ? ts : -Infinity }
     })
     .sort((a, b) => {
-      const aFuture = a.ts >= now - graceMs
-      const bFuture = b.ts >= now - graceMs
+      const aFuture = isCurrent(a.ts)
+      const bFuture = isCurrent(b.ts)
       if (aFuture && !bFuture) return -1
       if (!aFuture && bFuture) return 1
       if (aFuture && bFuture) return a.ts - b.ts
