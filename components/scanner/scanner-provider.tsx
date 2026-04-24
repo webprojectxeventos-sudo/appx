@@ -217,8 +217,12 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   //     were rescheduled or the operator was reassigned).
   // The picker UI doesn't expose 'all' as an option; we prefer a concrete day
   // so the operator sees a meaningful day-scoped view from the first render.
-  // Preferred day: any day with an event live-ish window (−6h..+24h) >
-  //                earliest upcoming day > earliest day overall.
+  // Preferred day:
+  //   0) today's calendar day if it has events (fixes past-midnight parties
+  //      where the live window has elapsed by morning) >
+  //   1) any day with an event in the live-ish window (−6h..+24h) >
+  //   2) earliest upcoming day >
+  //   3) last day overall.
   useEffect(() => {
     if (eventsByDay.length === 0) return
     const hasConcreteSelection =
@@ -228,16 +232,31 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     const now = Date.now()
     const hourMs = 3_600_000
     let bestKey: string | null = null
-    for (const d of eventsByDay) {
-      const hasLive = d.events.some((ev) => {
-        const delta = new Date(ev.date).getTime() - now
-        return delta >= -6 * hourMs && delta <= 24 * hourMs
-      })
-      if (hasLive) {
-        bestKey = d.key
-        break
+
+    // 0) Same calendar day as now. Night-club events start at 00:00 Madrid
+    //    and get scanned through the night and next morning. Without this,
+    //    by ~09:00 the event is −9h old → out of the live window below, and
+    //    the picker would drift to the next future day (first upcoming).
+    const todayKey = new Date(now).toDateString()
+    if (eventsByDay.some((d) => d.key === todayKey)) {
+      bestKey = todayKey
+    }
+
+    // 1) Any day with a live-ish event.
+    if (!bestKey) {
+      for (const d of eventsByDay) {
+        const hasLive = d.events.some((ev) => {
+          const delta = new Date(ev.date).getTime() - now
+          return delta >= -6 * hourMs && delta <= 24 * hourMs
+        })
+        if (hasLive) {
+          bestKey = d.key
+          break
+        }
       }
     }
+
+    // 2) Earliest upcoming.
     if (!bestKey) {
       for (const d of eventsByDay) {
         if (d.events.some((ev) => new Date(ev.date).getTime() >= now - hourMs)) {
@@ -246,7 +265,10 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
         }
       }
     }
+
+    // 3) Last-day fallback.
     if (!bestKey) bestKey = eventsByDay[eventsByDay.length - 1].key
+
     setSelectedDayKeyState(bestKey)
     try {
       sessionStorage.setItem('scanner:selectedDayKey', bestKey)
