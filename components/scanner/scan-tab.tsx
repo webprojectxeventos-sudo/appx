@@ -36,7 +36,10 @@ interface RecentScan {
   at: number
 }
 
-const RECENT_LIMIT = 5
+// Keep a generous scroll-back of scanned attendees so the operator can check
+// who has already entered during a long session. Old requirement was 5 which
+// erased the history the moment you scanned a 6th ticket.
+const RECENT_LIMIT = 30
 const VELOCITY_WINDOW_MS = 60_000
 const HERO_MS = 3_500 // how long the most recent scan stays in "hero" mode
 
@@ -591,12 +594,15 @@ export function ScanTab() {
         </p>
       )}
 
-      {/* Recent scans log */}
+      {/* Recent scans log — keeps up to RECENT_LIMIT in-session so the
+          operator can scroll back through who has already entered. Scrollable
+          panel with a fixed max height so the page doesn't grow unbounded. */}
       {recent.length > 0 && (
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-wider text-white/45 font-semibold">
-              Últimos escaneos
+              Historial{' '}
+              <span className="text-white/70 tabular-nums">({recent.length})</span>
             </p>
             <button
               onClick={() => setRecent([])}
@@ -605,7 +611,7 @@ export function ScanTab() {
               Limpiar
             </button>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 max-h-[340px] overflow-y-auto overflow-x-hidden -mx-1 px-1 scrollbar-thin">
             {recent.map((r) => (
               <RecentRow key={r.key} scan={r} />
             ))}
